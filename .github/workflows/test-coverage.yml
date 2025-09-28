@@ -1,0 +1,67 @@
+name: Test Coverage
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-coverage:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: r-lib/actions/setup-r@v2
+      with:
+        r-version: 'release'
+        use-public-rspm: true
+    
+    - uses: r-lib/actions/setup-r-dependencies@v2
+      with:
+        working-directory: localLLM
+        extra-packages: any::covr
+        needs: coverage
+    
+    - name: Clean compiled files
+      run: |
+        # Remove any compiled files that might cause issues
+        find . -name "*.o" -delete
+        find . -name "*.so" -delete
+        find . -name "*.dll" -delete
+        find . -name "*.dylib" -delete
+    
+    - name: Test coverage
+      run: |
+        # Move to package directory
+        cd localLLM
+        
+        # Clean any remaining compiled files (ignore if no Makefile)
+        rm -f src/*.o src/*.so || true
+        
+        # Install package
+        R CMD INSTALL . --clean
+        
+        # Run coverage with covr
+        Rscript -e "
+          library(covr)
+          
+          # Since this is a package with C++ backend that needs runtime loading,
+          # we focus on testing R code coverage
+          coverage <- package_coverage(
+            path = '.',
+            type = 'tests',
+            quiet = FALSE
+          )
+          
+          print(coverage)
+          
+          # Upload to codecov (this will handle the file generation)
+          codecov(coverage = coverage, token = Sys.getenv('CODECOV_TOKEN'))
+        "
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    

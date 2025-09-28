@@ -1,0 +1,29 @@
+Package: localLLM
+Type: Package
+Title: Local LLM Inference with Llama.cpp Backend Integration
+Version: 1.0.1
+Date: 2025-09-27
+Authors@R: c(person("Eddie", "Yang", role = "aut"), person("Yaosheng", "Xu", role = c("aut", "cre"), email = "xu2009@purdue.edu"))
+Author: Eddie Yang [aut], Yaosheng Xu [aut, cre]
+Maintainer: Yaosheng Xu <xu2009@purdue.edu>
+Description: Provides R bindings to the llama.cpp library for running large language models.
+    This package uses a lightweight architecture where the C++ backend library is downloaded
+    at runtime rather than bundled with the package. After installation, users must run
+    install_localLLM() to download the appropriate pre-compiled backend library for their
+    system. Features include text generation, tokenization, chat template functionality,
+    and automatic model downloading from multiple protocols (for example, HTTPS, HF, and Ollama) with
+    smart caching and progress tracking.
+License: MIT + file LICENSE
+Imports:
+    Rcpp (>= 1.0.14),
+    tools,
+    utils
+Suggests:
+    testthat (>= 3.0.0),
+    covr
+URL: https://github.com/EddieYang211/localLLM
+BugReports: https://github.com/EddieYang211/localLLM/issues
+SystemRequirements: C++17, libcurl (optional, for model downloading)
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.2

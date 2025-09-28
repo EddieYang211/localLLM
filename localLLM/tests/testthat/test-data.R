@@ -1,0 +1,10 @@
+test_that("ag_news_sample dataset is available and well-formed", {
+  data("ag_news_sample", package = "localLLM")
+  expect_true(exists("ag_news_sample"))
+  expect_s3_class(ag_news_sample, "data.frame")
+  expect_equal(nrow(ag_news_sample), 100)
+  expect_equal(sort(colnames(ag_news_sample)), c("class", "description", "title"))
+  expect_true(all(ag_news_sample$class %in% c("World", "Sports", "Business", "Sci/Tech")))
+  counts <- table(ag_news_sample$class)
+  expect_true(all(counts == 25))
+})

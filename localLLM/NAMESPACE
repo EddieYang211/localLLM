@@ -1,0 +1,35 @@
+useDynLib(localLLM, .registration=TRUE)
+importFrom(Rcpp, evalCpp)
+importFrom(tools, R_user_dir)
+importFrom(utils, download.file, unzip, askYesNo)
+importFrom(parallel, detectCores)
+
+# Export installation and utility functions
+export(install_localLLM)
+export(lib_is_installed)
+export(get_lib_path)
+
+# Export main API functions
+export(backend_init)
+export(backend_free)
+export(model_load)
+export(context_create)
+export(tokenize)
+export(detokenize)
+export(apply_chat_template)
+export(apply_gemma_chat_template)
+export(smart_chat_template)
+export(generate)
+export(generate_parallel)
+
+# Export debug functions
+export(tokenize_test)
+
+# Export model download functions
+export(download_model)
+export(get_model_cache_dir)
+export(list_cached_models)
+
+# Export high-level convenience functions
+export(quick_llama)
+export(quick_llama_reset)

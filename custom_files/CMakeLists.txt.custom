@@ -1,0 +1,307 @@
+cmake_minimum_required(VERSION 3.14) # for add_link_options and implicit target directories.
+project("llama.cpp" C CXX)
+include(CheckIncludeFileCXX)
+
+# --- Critical global settings for cross-platform compatibility ---
+set(CMAKE_POSITION_INDEPENDENT_CODE ON) # Solves the -fPIC error on Linux.
+set(CMAKE_CXX_STANDARD 17)              # Solves the C++11/17 syntax errors on macOS.
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# GLUE-CODE ARCHITECTURE with OBJECT LIBRARY FALLBACK
+# Strategy: Try static libraries first, fall back to OBJECT libraries if incomplete
+
+# Force complete static library builds (if possible)
+set(GGML_STATIC ON CACHE BOOL "Force GGML static library with complete symbols" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Force all libraries to be static for complete symbol inclusion" FORCE)
+
+# Essential build configuration for symbol completeness
+set(LLAMA_BUILD_COMMON ON CACHE BOOL "Build common utils (needed for complete linking)" FORCE)
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Disable tests for clean build" FORCE)
+set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "Disable tools for clean build" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Disable examples for clean build" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Disable server for clean build" FORCE)
+
+# Platform-specific backend configuration (ensure symbols are included)
+if(APPLE)
+    set(GGML_ACCELERATE ON CACHE BOOL "Enable Accelerate framework" FORCE)
+    # Allow Metal to be controlled by command line (-DGGML_METAL=ON/OFF)
+    if(NOT DEFINED GGML_METAL)
+        set(GGML_METAL OFF CACHE BOOL "Metal GPU acceleration (auto-detected)" FORCE)
+    endif()
+    set(GGML_BLAS ON CACHE BOOL "Enable BLAS support" FORCE)
+    set(GGML_BLAS_USE_ACCELERATE ON CACHE BOOL "Use Accelerate for BLAS" FORCE)
+    
+    # Fix Metal library embedding for GitHub Actions (avoid file system permission issues)
+    if(GGML_METAL)
+        set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "Embed Metal library to avoid file system issues" FORCE)
+    endif()
+endif()
+
+# Enable model download functionality with curl
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(CURL QUIET libcurl)
+endif()
+
+if(NOT CURL_FOUND)
+    find_package(CURL QUIET)
+endif()
+
+if(CURL_FOUND)
+    set(LLAMA_CURL ON CACHE BOOL "Enable curl for model downloading" FORCE)
+    message(STATUS "Found CURL: enabling model download functionality")
+else()
+    set(LLAMA_CURL OFF CACHE BOOL "CURL not found, disabling model download" FORCE)
+    message(WARNING "CURL not found: model download functionality will be disabled")
+endif()
+
+set(GGML_ALL_WARNINGS OFF CACHE BOOL "Disable warnings for clean build" FORCE)
+
+# Include original llama.cpp build logic (we ARE the CMakeLists.txt now)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/build-info.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/common.cmake)
+
+# Add subdirectories to build complete static libraries
+add_subdirectory(ggml)
+add_subdirectory(src)
+if (LLAMA_BUILD_COMMON)
+    add_subdirectory(common)
+endif()
+
+# Note: CURL is already found above conditionally
+
+# Check for BLAS availability on macOS
+if(APPLE)
+    find_library(ACCELERATE_FRAMEWORK Accelerate)
+    if(ACCELERATE_FRAMEWORK)
+        message(STATUS "Found Accelerate framework - enabling BLAS support with Accelerate")
+        set(BLAS_AVAILABLE TRUE)
+    else()
+        message(STATUS "Accelerate framework not found - disabling BLAS backend")
+        set(BLAS_AVAILABLE FALSE)
+    endif()
+else()
+    set(BLAS_AVAILABLE FALSE)
+endif()
+
+# === OBJECT LIBRARY FALLBACK STRATEGY ===
+# Function to check if static libraries contain required symbols
+function(check_static_library_completeness)
+    # Key symbols that must be present for glue-code architecture to work
+    set(REQUIRED_SYMBOLS 
+        "gguf_type_name"
+        "gguf_write_to_file" 
+        "ggml_view_1d"
+        "ggml_view_2d"
+        "ggml_new_tensor"
+        "ggml_set_param"
+    )
+    
+    # Check if we can find symbols in the static libraries
+    set(STATIC_LIBS_COMPLETE TRUE)
+    foreach(LIB_TARGET llama common ggml)
+        get_target_property(LIB_LOCATION ${LIB_TARGET} LOCATION)
+        if(EXISTS "${LIB_LOCATION}")
+            foreach(SYMBOL ${REQUIRED_SYMBOLS})
+                execute_process(
+                    COMMAND nm -g "${LIB_LOCATION}"
+                    COMMAND grep -q "${SYMBOL}"
+                    RESULT_VARIABLE SYMBOL_FOUND
+                    OUTPUT_QUIET ERROR_QUIET
+                )
+                if(NOT SYMBOL_FOUND EQUAL 0)
+                    message(WARNING "Symbol ${SYMBOL} not found in ${LIB_TARGET}")
+                    set(STATIC_LIBS_COMPLETE FALSE)
+                    break()
+                endif()
+            endforeach()
+        else()
+            set(STATIC_LIBS_COMPLETE FALSE)
+        endif()
+        if(NOT STATIC_LIBS_COMPLETE)
+            break()
+        endif()
+    endforeach()
+    
+    # Set global variable based on completeness check
+    set(USE_OBJECT_LIBRARIES ${STATIC_LIBS_COMPLETE} PARENT_SCOPE)
+    
+    if(STATIC_LIBS_COMPLETE)
+        message(STATUS "✅ Static libraries are complete - using pure glue-code architecture")
+    else()
+        message(STATUS "⚠️  Static libraries incomplete - falling back to OBJECT library strategy")
+    endif()
+endfunction()
+
+# Check static library completeness (will be run at build time)
+set(USE_OBJECT_LIBRARIES TRUE)  # Default to OBJECT libraries for safety
+
+# === GLUE-CODE ARCHITECTURE: OBJECT Library Implementation ===
+if(USE_OBJECT_LIBRARIES)
+    message(STATUS "🔧 Using OBJECT library fallback strategy")
+    
+    # Create our shared library with essential source files
+    add_library(localllm SHARED 
+        localllm_capi.cpp
+        # Essential GGML core that's often missing from static libs
+        ggml/src/ggml.c
+        ggml/src/gguf.cpp
+        ggml/src/ggml-alloc.c
+        ggml/src/ggml-backend.cpp
+        ggml/src/ggml-quants.c
+    )
+    
+    # Add platform-specific backend sources
+    if(APPLE AND BLAS_AVAILABLE)
+        target_sources(localllm PRIVATE
+            ggml/src/ggml-blas/ggml-blas.cpp
+            ggml/src/ggml-cpu/ggml-cpu.c
+            ggml/src/ggml-cpu/ggml-cpu.cpp
+        )
+    endif()
+    
+    # Add Metal backend sources if enabled
+    if(APPLE AND GGML_METAL)
+        target_sources(localllm PRIVATE
+            ggml/src/ggml-metal/ggml-metal.m
+        )
+        
+        # Handle Metal shader embedding
+        if(GGML_METAL_EMBED_LIBRARY)
+            enable_language(ASM)
+            target_compile_definitions(localllm PRIVATE GGML_METAL_EMBED_LIBRARY)
+            
+            # Create autogenerated directory
+            file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/autogenerated")
+            
+            # Set paths for Metal files
+            set(METALLIB_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/ggml/src/ggml-common.h")
+            set(METALLIB_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/ggml/src/ggml-metal/ggml-metal.metal")
+            set(METALLIB_IMPL   "${CMAKE_CURRENT_SOURCE_DIR}/ggml/src/ggml-metal/ggml-metal-impl.h")
+            
+            # Set output paths
+            set(METALLIB_EMBED_ASM        "${CMAKE_BINARY_DIR}/autogenerated/ggml-metal-embed.s")
+            set(METALLIB_SOURCE_EMBED     "${CMAKE_BINARY_DIR}/autogenerated/ggml-metal-embed.metal")
+            set(METALLIB_SOURCE_EMBED_TMP "${CMAKE_BINARY_DIR}/autogenerated/ggml-metal-embed.metal.tmp")
+            
+            # Create custom command to embed Metal library
+            add_custom_command(
+                OUTPUT ${METALLIB_EMBED_ASM}
+                COMMAND echo "Embedding Metal library for localllm"
+                COMMAND sed -e '/__embed_ggml-common.h__/r         ${METALLIB_COMMON}' -e '/__embed_ggml-common.h__/d'         < ${METALLIB_SOURCE}           > ${METALLIB_SOURCE_EMBED_TMP}
+                COMMAND sed -e '/\#include \"ggml-metal-impl.h\"/r ${METALLIB_IMPL}'   -e '/\#include \"ggml-metal-impl.h\"/d' < ${METALLIB_SOURCE_EMBED_TMP} > ${METALLIB_SOURCE_EMBED}
+                COMMAND echo ".section __DATA,__ggml_metallib"          >  ${METALLIB_EMBED_ASM}
+                COMMAND echo ".globl _ggml_metallib_start"              >> ${METALLIB_EMBED_ASM}
+                COMMAND echo "_ggml_metallib_start:"                    >> ${METALLIB_EMBED_ASM}
+                COMMAND echo ".incbin \\\"${METALLIB_SOURCE_EMBED}\\\"" >> ${METALLIB_EMBED_ASM}
+                COMMAND echo ".globl _ggml_metallib_end"                >> ${METALLIB_EMBED_ASM}
+                COMMAND echo "_ggml_metallib_end:"                      >> ${METALLIB_EMBED_ASM}
+                DEPENDS ${METALLIB_COMMON} ${METALLIB_SOURCE} ${METALLIB_IMPL}
+                COMMENT "Generate assembly for embedded Metal library in localllm"
+            )
+            
+            # Add the embedded assembly to our target
+            target_sources(localllm PRIVATE ${METALLIB_EMBED_ASM})
+        endif()
+    endif()
+    
+    # Link with static libraries for additional functionality
+    target_link_libraries(localllm PRIVATE llama common ggml)
+    
+else()
+    message(STATUS "🎯 Using pure glue-code architecture")
+    
+    # Only write "glue code" - don't manually list .c/.cpp files
+    add_library(localllm SHARED localllm_capi.cpp)
+    
+    # Ensure build order: static libraries must be built before our target
+    add_dependencies(localllm llama common ggml)
+    
+    # Link static libraries with complete symbol inclusion using platform-specific whole-archive
+    if(APPLE)
+        target_link_options(localllm PRIVATE
+            "-Wl,-force_load,$<TARGET_FILE:llama>"
+            "-Wl,-force_load,$<TARGET_FILE:common>"
+            "-Wl,-force_load,$<TARGET_FILE:ggml>"
+        )
+    elseif(UNIX AND NOT APPLE)
+        target_link_libraries(localllm PRIVATE
+            "-Wl,--whole-archive" llama common ggml "-Wl,--no-whole-archive"
+        )
+    elseif(WIN32)
+        target_link_options(localllm PRIVATE 
+            "/WHOLEARCHIVE:$<TARGET_FILE:llama>"
+            "/WHOLEARCHIVE:$<TARGET_FILE:common>"
+            "/WHOLEARCHIVE:$<TARGET_FILE:ggml>"
+        )
+    endif()
+endif()
+
+# Link system libraries and frameworks (common for both strategies)
+# Link CURL if available
+if(CURL_FOUND)
+    if(TARGET CURL::libcurl)
+        target_link_libraries(localllm PRIVATE CURL::libcurl)
+    elseif(CURL_LIBRARIES)
+        target_link_libraries(localllm PRIVATE ${CURL_LIBRARIES})
+        target_include_directories(localllm PRIVATE ${CURL_INCLUDE_DIRS})
+    endif()
+    target_compile_definitions(localllm PRIVATE LLAMA_USE_CURL)
+endif()
+
+# Link essential system libraries for all platforms
+if(UNIX)
+    target_link_libraries(localllm PRIVATE m pthread)
+endif()
+
+# Link Apple frameworks if on macOS
+if(APPLE)
+    if(ACCELERATE_FRAMEWORK)
+        target_link_libraries(localllm PRIVATE ${ACCELERATE_FRAMEWORK})
+        target_compile_definitions(localllm PRIVATE 
+            GGML_USE_ACCELERATE
+            GGML_BLAS_USE_ACCELERATE
+            ACCELERATE_NEW_LAPACK
+        )
+    endif()
+    
+    # Link Metal framework for GPU acceleration
+    find_library(METAL_FRAMEWORK Metal)
+    find_library(METALKIT_FRAMEWORK MetalKit)
+    if(METAL_FRAMEWORK AND METALKIT_FRAMEWORK)
+        target_link_libraries(localllm PRIVATE ${METAL_FRAMEWORK} ${METALKIT_FRAMEWORK})
+        target_compile_definitions(localllm PRIVATE GGML_USE_METAL)
+        message(STATUS "Found Metal framework - enabling Metal GPU acceleration")
+    else()
+        message(STATUS "Metal framework not found - disabling Metal backend")
+    endif()
+    
+    # Link Foundation framework for basic macOS/iOS types
+    find_library(FOUNDATION_FRAMEWORK Foundation)
+    if(FOUNDATION_FRAMEWORK)
+        target_link_libraries(localllm PRIVATE ${FOUNDATION_FRAMEWORK})
+    endif()
+endif()
+
+# Add necessary include directories
+target_include_directories(localllm PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/common"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ggml/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ggml/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ggml/src/ggml-cpu"
+)
+
+# Add Metal include directory if enabled
+if(APPLE AND GGML_METAL)
+    target_include_directories(localllm PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/ggml/src/ggml-metal"
+    )
+endif()
+
+# Set final properties for our library
+set_target_properties(localllm PROPERTIES
+    OUTPUT_NAME "localllm"
+    C_VISIBILITY_PRESET default
+    CXX_VISIBILITY_PRESET default
+)
