@@ -121,9 +121,7 @@ formatted_prompt <- apply_chat_template(model, messages)
 # 5. Tokenize, generate, and detokenize to get the final text response
 tokens <- tokenize(model, formatted_prompt)
 output_tokens <- generate(ctx, tokens, max_tokens = 200, temperature = 0.3)
-response <- detokenize(model, output_tokens)
-
-cat(response)
+output_tokens
 ```
 
 #### Parallel (Batch) Generation with Chat Templates
@@ -152,16 +150,14 @@ formatted_prompts <- sapply(user_prompts, function(user_content) {
 
 # Process all formatted prompts in a single, highly optimized parallel call
 results_parallel <- generate_parallel(ctx, formatted_prompts, max_tokens = 100)
-
-# The result is a character vector with a response for each prompt
-print(results_parallel)
+results_parallel
 ```
 
 ---
 
 ### Running Example
 
-Let's walk through the same news-classification task end-to-end with a single prompt.
+In academic research, text classification is a highly demanded task—for example, classifying news articles by topic. To help users better understand how to leverage this package, we provide an example of performing text classification using open-source large language models. Specifically, we use a sample dataset containing 100 news headlines and their corresponding paragraphs, and demonstrate how to perform classification with three approaches: quick_llama, single-call functions, and parallel sequence functions.
 ```r
 library(localLLM)
 
@@ -176,12 +172,10 @@ news_prompt <- paste(
 )
 
 result <- quick_llama(news_prompt)
-cat(result)
+result
 ```
 
----
-
-### For Loop for Running Example
+#### For Loop for Running Example
 
 To process the entire dataframe, a `for` loop is a straightforward approach. This method processes each row sequentially.
 
@@ -198,12 +192,12 @@ data_sample <- ag_news_sample %>%
 # 1. Load the model once
 model <- model_load(
   model = "gemma-3-4b-it.Q4_K_S.gguf",
-  n_gpu_layers = 50,
+  n_gpu_layers = 99,
   verbosity = 1
 )
 
 # 2. Create a reusable context
-ctx <- context_create(model, n_ctx = 2048, verbosity = 1)
+ctx <- context_create(model, n_ctx = 512, verbosity = 1)
 
 # Process each observation
 for (i in seq_len(nrow(data_sample))) {
@@ -246,9 +240,6 @@ for (i in seq_len(nrow(data_sample))) {
   })
 }
 
-# Display final dataset
-print(data_sample)
-
 # Compare with true labels
 data_sample <- data_sample %>%
   mutate(correct = ifelse(LLM_result == class, TRUE, FALSE))
@@ -261,14 +252,15 @@ write.csv(data_sample, "classification_results.csv", row.names = FALSE)
 cat("Results saved to classification_results.csv\n")
 ```
 
-
-### Parallel Processing Example
+#### Parallel Processing Example
 
 In addition to looping through each row with the single-sequence generator, you can process the same dataset with the parallel generator; in our benchmarking on this sample, the batched run finishes in roughly 65% of the for-loop execution time.
 
 ```r
+# 2. Create a reusable context
+ctx <- context_create(model, n_ctx = 1048, n_seq_max = 10, verbosity = 1)
+
 # 3. Prepare all prompts at once
-cat("Preparing all prompts for parallel processing...\n")
 all_prompts <- character(nrow(data_sample))
 prompt_tokens <- vector("list", nrow(data_sample))  # optional: inspect tokenized prompts
 
