@@ -233,7 +233,7 @@ for (i in seq_len(nrow(data_sample))) {
     )
     
     # Store the result (output_tokens is already text)
-    data_sample$LLM_result[i] <- trimws(gsub("\\n.*$", "", output_tokens))
+    data_sample$LLM_result[i] <- trimws(sub("\\.$", "", gsub("[\n<].*$", "", output_tokens)))
     
   }, error = function(e) {
     cat("Error on item", i, ":", e$message, "\n")
