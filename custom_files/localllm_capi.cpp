@@ -304,11 +304,11 @@ LOCALLLM_API localllm_error_code localllm_apply_chat_template(localllm_model_han
         effective_tmpl = llama_model_chat_template(model, nullptr);
     }
 
-    // Step 2: call llama_chat_apply_template (standard 6-argument variant)
+    // Step 2: call llama_chat_apply_template (standard 6-parameter version)
     int32_t res = llama_chat_apply_template(effective_tmpl, messages_vec.data(), n_messages, add_ass, buffer.data(), buffer.size()); 
     
     if (res < 0) { 
-        // Provide detailed error diagnostics
+        // Provide more detailed error information
         std::string error_msg = "Failed to apply chat template. Error code: " + std::to_string(res);
         if (res == -1) {
             error_msg += " (template not found or invalid)";
@@ -353,7 +353,7 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
     // Configure samplers using the order and parameters from upstream batched.cpp
     // Note: penalties sampler omitted because the upstream reference does not include it
     llama_sampler_chain_add(sampler_chain, llama_sampler_init_top_k(top_k)); 
-    llama_sampler_chain_add(sampler_chain, llama_sampler_init_top_p(top_p, 1)); // min_keep=1 is the upstream default
+    llama_sampler_chain_add(sampler_chain, llama_sampler_init_top_p(top_p, 1)); // min_keep=1 is standard
     llama_sampler_chain_add(sampler_chain, llama_sampler_init_temp(temperature)); 
     uint32_t final_seed = (seed < 0) ? time(NULL) : seed; 
     llama_sampler_chain_add(sampler_chain, llama_sampler_init_dist(final_seed)); 
@@ -365,16 +365,16 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
         llama_token new_token = llama_sampler_sample(sampler_chain, ctx, -1); 
         llama_sampler_accept(sampler_chain, new_token); 
         
-        // Fix: combine single-token EOG checks with multi-token sequence detection
+        // Fix: combine standard EOG detection + multi-token sequence detection
         
-        // 1. Standard single-token EOG check (upstream logic)
+        // 1. Standard single-token EOG detection (retain official logic)
         if (llama_vocab_is_eog(vocab, new_token)) {
-            break; // stop immediately without appending to the output
+            break; // Stop generation immediately, do not add to output
         }
         
-        // 2. Multi-token EOG sequence check (uses token sequences validated by diagnostics)
+        // 2. Multi-token EOG sequence detection (based on diagnostic script's accurate token sequences)
         recent_tokens.push_back(new_token);
-        if (recent_tokens.size() > 7) {  // keep a window of the most recent 7 tokens
+        if (recent_tokens.size() > 7) {  // Keep a sliding window of last 7 tokens
             recent_tokens.erase(recent_tokens.begin());
         }
         
@@ -397,12 +397,12 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
                     llama_token tok = recent_tokens[recent_tokens.size() - 7 + k];
                     tokens_to_remove += common_token_to_piece(ctx, tok);
                 }
-                // Remove safely
+                // Safe removal
                 if (generated_text.length() >= tokens_to_remove.length() && 
                     generated_text.substr(generated_text.length() - tokens_to_remove.length()) == tokens_to_remove) {
                     generated_text.erase(generated_text.length() - tokens_to_remove.length());
                 }
-                break; // stop without emitting the seventh token
+                break; // Stop generation, do not add the 7th token
             }
             
             // <|end_header_id|> sequence: [27, 91, 408, 8932, 851, 91, 29]  
@@ -426,11 +426,11 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
                     generated_text.substr(generated_text.length() - tokens_to_remove.length()) == tokens_to_remove) {
                     generated_text.erase(generated_text.length() - tokens_to_remove.length());
                 }
-                break; // stop generation
+                break; // Stop generation
             }
         }
         
-        // Only non-EOG tokens are appended to the output
+        // Only add non-EOG tokens to output
         const std::string token_str = common_token_to_piece(ctx, new_token);
         generated_text += token_str;
         
