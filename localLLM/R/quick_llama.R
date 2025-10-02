@@ -224,10 +224,10 @@ quick_llama_reset <- function() {
   text <- gsub('\r\n', '\n', text, perl = TRUE)
 
   # Remove chat template markers such as <|start_header|>, <|im_start|>, etc.
-  text <- gsub("<[|｜][^>|｜]+[|｜]>(?:assistant|user|system)?\\s*", "", text, perl = TRUE, ignore.case = TRUE)
+  text <- gsub("<[\u007c\uff5c][^\u007c\uff5c>]+[\u007c\uff5c]>(?:assistant|user|system)?\\s*", "", text, perl = TRUE, ignore.case = TRUE)
 
   # Remove partially emitted control tokens at the end of the string (e.g. '<|start_header')
-  text <- gsub("<[|｜][^>｜]*$", "", text, perl = TRUE)
+  text <- gsub("<[\u007c\uff5c][^\u007c\uff5c>]*$", "", text, perl = TRUE)
 
   # Strip bracket-based instruction markers used by several instruct models
   text <- gsub("\\[/?INST\\]", "", text, perl = TRUE)
