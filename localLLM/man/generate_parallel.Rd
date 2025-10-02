@@ -14,7 +14,8 @@ generate_parallel(
   repeat_last_n = 64L,
   penalty_repeat = 1.1,
   seed = -1L,
-  progress = FALSE
+  progress = FALSE,
+  clean = FALSE
 )
 }
 \arguments{
@@ -38,6 +39,8 @@ generate_parallel(
 
 \item{progress}{If \code{TRUE}, displays a console progress bar indicating batch
 completion status while generations are running (default: FALSE).}
+
+\item{clean}{If TRUE, remove common chat-template control tokens from each generated text (default: FALSE).}
 }
 \value{
 Character vector of generated texts

@@ -7,6 +7,7 @@ Quick reference for the exported public API. Use `?function_name` inside R for f
 - `lib_is_installed()` – return `TRUE`/`FALSE` depending on whether the backend library is already present.
 - `get_lib_path()` – absolute path to the installed shared library (errors if not installed).
 - `backend_init()` / `backend_free()` – initialise or shut down the backend; usually called automatically.
+- `set_hf_token()` – configure a Hugging Face token for authenticated downloads.
 
 ## Model lifecycle
 - `model_load()` – load a GGUF model from a local path or URL (includes caching logic and safety checks).

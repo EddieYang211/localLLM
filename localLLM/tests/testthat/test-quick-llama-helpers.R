@@ -8,6 +8,15 @@ test_that(".clean_output handles non character inputs", {
   expect_equal(localLLM:::.clean_output(123), 123)
 })
 
+test_that(".clean_output strips llama 3 control tokens", {
+  expect_equal(localLLM:::.clean_output("Business<|start_header|>assistant"), "Business")
+  expect_equal(localLLM:::.clean_output("Summary<|end_header|>"), "Summary")
+})
+
+test_that(".clean_output strips fullwidth control tokens", {
+  expect_equal(localLLM:::.clean_output("Answer<｜Assistant｜>"), "Answer")
+})
+
 test_that(".get_default_model returns valid URL", {
   url <- localLLM:::.get_default_model()
   expect_true(is.character(url) && length(url) == 1)
@@ -44,6 +53,31 @@ test_that(".ensure_model_loaded caches model/context", {
       expect_equal(calls, list(model = 1L, context = 1L))
       localLLM:::.ensure_model_loaded("dummy", 0L, 128L, 1L, verbosity = 0L)
       expect_equal(calls, list(model = 1L, context = 1L))
+    }
+  )
+})
+
+test_that("quick_llama clean flag controls post-processing", {
+  with_mocked_bindings(
+    .ensure_quick_llama_ready = function() NULL,
+    .ensure_model_loaded = function(...) {
+      env <- getNamespace("localLLM")
+      env$.quick_llama_env$model <- structure(list(), class = "localllm_model")
+      env$.quick_llama_env$context <- structure(list(), class = "localllm_context")
+      env$.quick_llama_env$cache_key <- "dummy"
+    },
+    tokenize = function(model, text, add_special = TRUE) seq_along(strsplit(text, "")[[1]]),
+    generate = function(context, tokens, ...) {
+      "Business<|start_header|>assistant"
+    },
+    .package = "localLLM",
+    {
+      quick_llama_reset()
+      cleaned <- quick_llama("Business inquiry", auto_format = FALSE, clean = TRUE)
+      expect_equal(cleaned, "Business")
+      raw <- quick_llama("Business inquiry", auto_format = FALSE, clean = FALSE)
+      expect_equal(raw, "Business<|start_header|>assistant")
+      quick_llama_reset()
     }
   )
 })

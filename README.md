@@ -52,7 +52,7 @@ conversion steps.
    name together with `gguf` in the search query (e.g. `gemma gguf`).
 
 For a quick start, `quick_llama()` defaults to
-`gemma-3-4b-it.Q4_K_S.gguf`, an instruction-tuned Gemma 3 model that downloads
+`Llama-3.2-3B-Instruct-Q5_K_M.gguf`, an instruction-tuned Llama 3.2 model that downloads
 automatically on first use. You can swap in any other GGUF model by passing a
 different URL or local path; refer to the function reference for the `model`
 argument to see all available options.
@@ -72,7 +72,7 @@ response <- quick_llama("What is machine learning in one sentence?")
 cat(response)
 ```
 
-The `quick_llama()` function is a high-level wrapper designed for convenience. It uses sensible defaults for all parameters, including automatically downloading and caching a small, efficient model on its first run. You can easily customize the generation by passing arguments directly. For example, you can change the `temperature` for more creative responses or increase `max_tokens` for longer answers.
+The `quick_llama()` function is a high-level wrapper designed for convenience. It uses sensible defaults for all parameters, including automatically downloading and caching `Llama-3.2-3B-Instruct-Q5_K_M.gguf` on its first run. You can easily customize the generation by passing arguments directly. For example, you can change the `temperature` for more creative responses or increase `max_tokens` for longer answers.
 
 Importantly, `quick_llama()` is a smart function. It automatically detects the format of your input.
 *   If you provide a **single character string**, it performs a single generation.
@@ -100,7 +100,7 @@ Modern instruction-tuned models are trained to respond to specific formats that 
 # 1. Load the model once (e.g., enabling GPU acceleration)
 # Using a large number for n_gpu_layers offloads as many layers as possible.
 model <- model_load(
-  model = "gemma-3-4b-it.Q4_K_S.gguf",
+  model = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
   n_gpu_layers = 999
 )
 
@@ -191,7 +191,7 @@ data_sample <- ag_news_sample %>%
 
 # 1. Load the model once
 model <- model_load(
-  model = "gemma-3-4b-it.Q4_K_S.gguf",
+  model = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
   n_gpu_layers = 99,
   verbosity = 1
 )
@@ -228,7 +228,8 @@ for (i in seq_len(nrow(data_sample))) {
       temperature = 0.7,
       repeat_last_n = 32L,
       penalty_repeat = 1.05,
-      seed = 1234L
+      seed = 1234L,
+      clean = TRUE
     )
     
     # Store the result (output_tokens is already text)
@@ -295,7 +296,8 @@ tryCatch({
     repeat_last_n = 32L,
     penalty_repeat = 1.05,
     seed = 1234L,
-    progress = TRUE
+    progress = TRUE,
+    clean = TRUE
   )
 
   parallel_end_time <- Sys.time()
@@ -360,14 +362,14 @@ filename.
 # Download a different model from Hugging Face (cached automatically)
 response <- quick_llama(
   "Explain quantum physics in simple terms",
-  model = "gemma-3-4b-it.Q4_K_S.gguf"
+  model = "Llama-3.2-3B-Instruct-Q5_K_M.gguf"
 )
 
 # Load a local model file you have already downloaded
 response <- quick_llama("Explain quantum physics in simple terms", model = "/path/to/your/local_model.gguf")
 
 # Reuse a cached model by name fragment (auto-detected from cache)
-response <- quick_llama("Explain quantum physics in simple terms", model = "gemma-3-4b")
+response <- quick_llama("Explain quantum physics in simple terms", model = "Llama-3.2")
 ```
 
 If you provide a name fragment instead of a full path/URL, the loader searches
@@ -387,6 +389,45 @@ if (nrow(cached) > 0) {
   message("No cached models found.")
 }
 ```
+
+**Troubleshooting: Download Lock Issues**
+
+If you encounter an error message like "Another download in progress" or "Download timeout: another process seems to be stuck", it means a previous download was interrupted and left a lock file. To resolve this, clear the cache directory manually:
+
+```r
+# macOS default path
+unlink("~/Library/Caches/org.R-project.R/R/localLLM/models", recursive = TRUE, force = TRUE)
+
+# Linux default path
+unlink("~/.cache/R/localLLM/models", recursive = TRUE, force = TRUE)
+
+# Windows default path
+unlink(file.path(Sys.getenv("LOCALAPPDATA"), "R", "cache", "R", "localLLM", "models"), recursive = TRUE, force = TRUE)
+```
+
+This will remove all cached models and lock files, allowing fresh downloads.
+
+#### Private Hugging Face Models
+
+Some Hugging Face repositories (for example, Google-released or enterprise models) require an access token. Set the token once per session using `set_hf_token()` before calling `quick_llama()`, `model_load()`, or `download_model()`. The helper wires the token into the backend without printing it to the console.
+
+```r
+# Store the token for this session
+set_hf_token('hf_your_token_here')
+
+# Optionally persist it to ~/.Renviron (use with care)
+# set_hf_token('hf_your_token_here', persist = TRUE)
+
+# Now you can load gated models by URL
+model <- model_load('hf://google/gated-model/model.gguf')
+```
+
+You can also set `HF_TOKEN` manually via `Sys.setenv()` if you prefer to manage environment variables yourself.
+
+**Where to find your Hugging Face access token**
+1. Visit https://huggingface.co/settings/tokens while logged in.
+2. Click *Create new token*, give it a descriptive name, and assign at least *read* scope.
+3. Copy the token (starts with `hf_`) and pass it to `set_hf_token()` as shown above.
 
 #### Max Tokens
 

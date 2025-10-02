@@ -9,7 +9,8 @@ download_model(
   output_path = NULL,
   show_progress = TRUE,
   verify_integrity = TRUE,
-  max_retries = 3
+  max_retries = 3,
+  hf_token = NULL
 )
 }
 \arguments{
@@ -22,6 +23,8 @@ download_model(
 \item{verify_integrity}{Verify file integrity after download (default: TRUE)}
 
 \item{max_retries}{Maximum number of download retries (default: 3)}
+
+\item{hf_token}{Optional Hugging Face access token to use for this download. Defaults to the existing `HF_TOKEN` environment variable.}
 }
 \value{
 The path where the model was saved

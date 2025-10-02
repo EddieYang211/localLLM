@@ -49,6 +49,7 @@ backend_free <- function() {
 #'   Useful for updating to newer model versions
 #' @param verify_integrity Verify file integrity using checksums when available (default: TRUE)
 #' @param check_memory Check if sufficient system memory is available before loading (default: TRUE)
+#' @param hf_token Optional Hugging Face access token to set during model resolution. Defaults to the existing `HF_TOKEN` environment variable.
 #' @param verbosity Control backend logging during model loading (default: 1L).
 #'   Larger numbers print more detail: \code{0} shows only errors, \code{1}
 #'   adds warnings, \code{2} prints informational messages, and \code{3}
@@ -86,12 +87,12 @@ backend_free <- function() {
 #' @seealso \code{\link{context_create}}, \code{\link{download_model}}, \code{\link{get_model_cache_dir}}, \code{\link{list_cached_models}}
 model_load <- function(model_path, cache_dir = NULL, n_gpu_layers = 0L, use_mmap = TRUE, 
                        use_mlock = FALSE, show_progress = TRUE, force_redownload = FALSE, 
-                       verify_integrity = TRUE, check_memory = TRUE, verbosity = 1L) {
+                       verify_integrity = TRUE, check_memory = TRUE, hf_token = NULL, verbosity = 1L) {
   .ensure_backend_loaded()
   
   # Resolve model path (download if needed)
   resolved_path <- .resolve_model_path(model_path, cache_dir, show_progress, 
-                                       force_redownload, verify_integrity)
+                                       force_redownload, verify_integrity, hf_token)
   if (is.null(resolved_path)) {
     stop("Model selection was cancelled. Provide a specific path or URL to continue.", call. = FALSE)
   }
@@ -309,12 +310,13 @@ apply_chat_template <- function(model, messages, template = NULL, add_assistant 
 #' @param context A context object created with \code{\link{context_create}}
 #' @param tokens Integer vector of input tokens. Use \code{\link{tokenize}} to convert text to tokens
 #' @param max_tokens Maximum number of tokens to generate (default: 100). Higher values produce longer responses
-#' @param top_k Top-k sampling parameter (default: 40). Limits vocabulary to k most likely tokens. Use 0 to disable
+#' @param top_k Top-k sampling parameter (default: 20). Limits vocabulary to k most likely tokens. Use 0 to disable
 #' @param top_p Top-p (nucleus) sampling parameter (default: 0.9). Cumulative probability threshold for token selection
-#' @param temperature Sampling temperature (default: 0.8). Higher values (>1) increase randomness, lower values (<1) make output more deterministic
+#' @param temperature Sampling temperature (default: 0.7). Higher values (>1) increase randomness, lower values (<1) make output more deterministic
 #' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 64)
 #' @param penalty_repeat Repetition penalty strength (default: 1.1). Values >1 discourage repetition, <1 encourage it
-#' @param seed Random seed for reproducible generation (default: -1 for random). Use positive integers for deterministic output
+#' @param seed Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output
+#' @param clean If TRUE, strip common chat-template control tokens from the generated text (default: FALSE).
 #' @return Character string containing the generated text
 #' @export
 #' @examples
@@ -339,13 +341,13 @@ apply_chat_template <- function(model, messages, template = NULL, add_assistant 
 #' @seealso \code{\link{quick_llama}}, \code{\link{generate_parallel}}, \code{\link{tokenize}}, \code{\link{context_create}}
 generate <- function(context, tokens, max_tokens = 100L, top_k = 20L, top_p = 0.9,
                      temperature = 0.7, repeat_last_n = 64L, penalty_repeat = 1.1,
-                     seed = 1234L) {
+                     seed = 1234L, clean = FALSE) {
   .ensure_backend_loaded()
   if (!inherits(context, "localllm_context")) {
     stop("Expected a localllm_context object", call. = FALSE)
   }
   
-  .Call("c_r_generate",
+  result <- .Call("c_r_generate",
         context,
         as.integer(tokens),
         as.integer(max_tokens),
@@ -355,6 +357,12 @@ generate <- function(context, tokens, max_tokens = 100L, top_k = 20L, top_p = 0.
         as.integer(repeat_last_n),
         as.numeric(penalty_repeat),
         as.integer(seed))
+
+  if (isTRUE(clean)) {
+    result <- .clean_output(result)
+  }
+
+  result
 }
 
 #' Generate text in parallel
@@ -370,17 +378,18 @@ generate <- function(context, tokens, max_tokens = 100L, top_k = 20L, top_p = 0.
 #' @param seed Random seed (default: -1 for random)
 #' @param progress If \code{TRUE}, displays a console progress bar indicating batch
 #'   completion status while generations are running (default: FALSE).
+#' @param clean If TRUE, remove common chat-template control tokens from each generated text (default: FALSE).
 #' @return Character vector of generated texts
 #' @export
 generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, top_p = 0.9,
                               temperature = 0.8, repeat_last_n = 64L, penalty_repeat = 1.1,
-                              seed = -1L, progress = FALSE) {
+                              seed = -1L, progress = FALSE, clean = FALSE) {
   .ensure_backend_loaded()
   if (!inherits(context, "localllm_context")) {
     stop("Expected a localllm_context object", call. = FALSE)
   }
   
-  .Call("c_r_generate_parallel",
+  result <- .Call("c_r_generate_parallel",
         context,
         as.character(prompts),
         as.integer(max_tokens),
@@ -391,6 +400,16 @@ generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, 
         as.numeric(penalty_repeat),
         as.integer(seed),
         as.logical(progress))
+
+  if (isTRUE(clean)) {
+    if (is.list(result)) {
+      result <- lapply(result, .clean_output)
+    } else if (is.character(result)) {
+      result <- vapply(result, .clean_output, character(1), USE.NAMES = TRUE)
+    }
+  }
+
+  result
 }
 
 #' Test tokenize function (debugging)
@@ -414,6 +433,7 @@ tokenize_test <- function(model) {
 #' @param show_progress Whether to show download progress (default: TRUE)
 #' @param verify_integrity Verify file integrity after download (default: TRUE)
 #' @param max_retries Maximum number of download retries (default: 3)
+#' @param hf_token Optional Hugging Face access token to use for this download. Defaults to the existing `HF_TOKEN` environment variable.
 #' @return The path where the model was saved
 #' @export
 #' @examples
@@ -425,7 +445,7 @@ tokenize_test <- function(model) {
 #' cached_path <- download_model("https://example.com/model.gguf")
 #' }
 download_model <- function(model_url, output_path = NULL, show_progress = TRUE, 
-                           verify_integrity = TRUE, max_retries = 3) {
+                           verify_integrity = TRUE, max_retries = 3, hf_token = NULL) {
   .ensure_backend_loaded()
   
   if (is.null(output_path)) {
@@ -442,7 +462,7 @@ download_model <- function(model_url, output_path = NULL, show_progress = TRUE,
   message("Saving to: ", output_path)
   
   # Download with retry mechanism
-  .download_with_retry(model_url, output_path, show_progress, max_retries)
+  .download_with_retry(model_url, output_path, show_progress, max_retries, hf_token)
   
   # Verify integrity if requested
   if (verify_integrity) {
@@ -675,7 +695,7 @@ list_cached_models <- function(cache_dir = NULL) {
 #' @param cache_path The local cache path
 #' @param show_progress Whether to show download progress
 #' @noRd
-.download_model_to_cache <- function(model_url, cache_path, show_progress = TRUE) {
+.download_model_to_cache <- function(model_url, cache_path, show_progress = TRUE, hf_token = NULL) {
   # Create output directory if it doesn't exist
   output_dir <- dirname(cache_path)
   if (!dir.exists(output_dir)) {
@@ -686,7 +706,7 @@ list_cached_models <- function(cache_dir = NULL) {
   message("Saving to: ", cache_path)
   
   # Download with retry mechanism
-  .download_with_retry(model_url, cache_path, show_progress)
+  .download_with_retry(model_url, cache_path, show_progress, hf_token = hf_token)
   
   message("Model downloaded successfully!")
 }
@@ -700,7 +720,7 @@ list_cached_models <- function(cache_dir = NULL) {
 #' @return The resolved local file path
 #' @noRd
 .resolve_model_path <- function(model_path, cache_dir = NULL, show_progress = TRUE, 
-                                force_redownload = FALSE, verify_integrity = TRUE) {
+                                force_redownload = FALSE, verify_integrity = TRUE, hf_token = NULL) {
   # If it's a local file that exists, verify and return
   if (!.is_url(model_path) && file.exists(model_path)) {
     if (verify_integrity && !.verify_file_integrity(model_path)) {
@@ -730,7 +750,7 @@ list_cached_models <- function(cache_dir = NULL) {
     }
     
     # Download to cache
-    .download_model_to_cache(model_path, cache_path, show_progress)
+    .download_model_to_cache(model_path, cache_path, show_progress, hf_token = hf_token)
     
     # Verify downloaded file
     if (verify_integrity && !.verify_file_integrity(cache_path)) {
@@ -846,83 +866,85 @@ list_cached_models <- function(cache_dir = NULL) {
 #' @param show_progress Whether to show progress
 #' @param max_retries Maximum number of retries
 #' @noRd
-.download_with_retry <- function(model_url, output_path, show_progress = TRUE, max_retries = 3) {
-  .ensure_backend_loaded()
-  
-  # Create lock file to prevent concurrent downloads
-  lock_file <- paste0(output_path, ".lock")
-  
-  # Check if another process is downloading
-  if (file.exists(lock_file)) {
-    message("Another download in progress, waiting...")
-    for (i in 1:30) {  # Wait up to 30 seconds
-      Sys.sleep(1)
-      if (!file.exists(lock_file)) break
-    }
+.download_with_retry <- function(model_url, output_path, show_progress = TRUE, max_retries = 3, hf_token = NULL) {
+  .with_hf_token(hf_token, {
+    .ensure_backend_loaded()
     
-    if (file.exists(lock_file)) {
-      stop("Download timeout: another process seems to be stuck", call. = FALSE)
-    }
-  }
-  
-  # Create lock file
-  file.create(lock_file)
-  on.exit({
-    if (file.exists(lock_file)) {
-      file.remove(lock_file)
-    }
-  }, add = TRUE)
-  
-  last_error <- NULL
-  
-  for (attempt in 1:max_retries) {
-    if (attempt > 1) {
-      message("Download attempt ", attempt, " of ", max_retries, "...")
-      Sys.sleep(2)  # Brief delay between retries
-    }
+    # Create lock file to prevent concurrent downloads
+    lock_file <- paste0(output_path, ".lock")
     
-    tryCatch({
-      # Try C++ download first
-      .Call("c_r_download_model", 
-            as.character(model_url),
-            as.character(output_path),
-            as.logical(show_progress))
-      
-      # Check if download was successful
-      if (file.exists(output_path) && file.info(output_path)$size > 0) {
-        return()
+    # Check if another process is downloading
+    if (file.exists(lock_file)) {
+      message("Another download in progress, waiting...")
+      for (i in 1:30) {  # Wait up to 30 seconds
+        Sys.sleep(1)
+        if (!file.exists(lock_file)) break
       }
       
-      stop("Download produced empty file")
-      
-    }, error = function(e) {
-      last_error <<- e
-      
-      # Clean up partial download
-      if (file.exists(output_path)) {
-        file.remove(output_path)
+      if (file.exists(lock_file)) {
+        stop("Download timeout: another process seems to be stuck", call. = FALSE)
+      }
+    }
+    
+    # Create lock file
+    file.create(lock_file)
+    on.exit({
+      if (file.exists(lock_file)) {
+        file.remove(lock_file)
+      }
+    }, add = TRUE)
+    
+    last_error <- NULL
+    
+    for (attempt in 1:max_retries) {
+      if (attempt > 1) {
+        message("Download attempt ", attempt, " of ", max_retries, "...")
+        Sys.sleep(2)  # Brief delay between retries
       }
       
-      # Try R fallback on last attempt
-      if (attempt == max_retries) {
-        message("C++ download failed, trying R fallback...")
+      tryCatch({
+        # Try C++ download first
+        .Call("c_r_download_model", 
+              as.character(model_url),
+              as.character(output_path),
+              as.logical(show_progress))
         
-        tryCatch({
-          utils::download.file(model_url, output_path, mode = "wb", 
-                              method = "auto", quiet = !show_progress)
+        # Check if download was successful
+        if (file.exists(output_path) && file.info(output_path)$size > 0) {
+          return()
+        }
+        
+        stop("Download produced empty file")
+        
+      }, error = function(e) {
+        last_error <<- e
+        
+        # Clean up partial download
+        if (file.exists(output_path)) {
+          file.remove(output_path)
+        }
+        
+        # Try R fallback on last attempt
+        if (attempt == max_retries) {
+          message("C++ download failed, trying R fallback...")
           
-          if (file.exists(output_path) && file.info(output_path)$size > 0) {
-            return()
-          }
-          
-        }, error = function(e2) {
-          last_error <<- e2
-        })
-      }
-    })
-  }
-  
-  # If we get here, all attempts failed
-  stop("Download failed after ", max_retries, " attempts. Last error: ", 
-       last_error$message, call. = FALSE)
+          tryCatch({
+            utils::download.file(model_url, output_path, mode = "wb", 
+                                method = "auto", quiet = !show_progress)
+            
+            if (file.exists(output_path) && file.info(output_path)$size > 0) {
+              return()
+            }
+            
+          }, error = function(e2) {
+            last_error <<- e2
+          })
+        }
+      })
+    }
+    
+    # If we get here, all attempts failed
+    stop("Download failed after ", max_retries, " attempts. Last error: ", 
+         last_error$message, call. = FALSE)
+  })
 } 

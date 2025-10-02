@@ -14,6 +14,7 @@ model_load(
   force_redownload = FALSE,
   verify_integrity = TRUE,
   check_memory = TRUE,
+  hf_token = NULL,
   verbosity = 1L
 )
 }
@@ -47,6 +48,8 @@ Useful for updating to newer model versions}
 \item{verify_integrity}{Verify file integrity using checksums when available (default: TRUE)}
 
 \item{check_memory}{Check if sufficient system memory is available before loading (default: TRUE)}
+
+\item{hf_token}{Optional Hugging Face access token to set during model resolution. Defaults to the existing `HF_TOKEN` environment variable.}
 
 \item{verbosity}{Control backend logging during model loading (default: 1L).
 Larger numbers print more detail: \code{0} shows only errors, \code{1}

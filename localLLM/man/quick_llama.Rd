@@ -24,13 +24,14 @@ quick_llama(
   stream = FALSE,
   seed = 1234L,
   progress = interactive(),
+  clean = TRUE,
   ...
 )
 }
 \arguments{
 \item{prompt}{Character string or vector of prompts to process}
 
-\item{model}{Model URL or path (default: Gemma 3 4B IT Q4_K_S)}
+\item{model}{Model URL or path (default: Llama 3.2 3B Instruct Q5_K_M)}
 
 \item{n_threads}{Number of threads (default: auto-detect)}
 
@@ -69,6 +70,9 @@ output.}
 
 \item{progress}{Show a console progress bar when running parallel generation.
 Default: \code{interactive()}. Has no effect for single-prompt runs.}
+
+\item{clean}{Whether to strip chat-template control tokens from the generated output.
+Defaults to \code{TRUE}.}
 
 \item{...}{Additional parameters passed to generate() or generate_parallel()}
 }

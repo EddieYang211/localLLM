@@ -33,3 +33,4 @@ export(list_cached_models)
 # Export high-level convenience functions
 export(quick_llama)
 export(quick_llama_reset)
+export(set_hf_token)

@@ -13,7 +13,8 @@ generate(
   temperature = 0.7,
   repeat_last_n = 64L,
   penalty_repeat = 1.1,
-  seed = 1234L
+  seed = 1234L,
+  clean = FALSE
 )
 }
 \arguments{
@@ -23,17 +24,19 @@ generate(
 
 \item{max_tokens}{Maximum number of tokens to generate (default: 100). Higher values produce longer responses}
 
-\item{top_k}{Top-k sampling parameter (default: 40). Limits vocabulary to k most likely tokens. Use 0 to disable}
+\item{top_k}{Top-k sampling parameter (default: 20). Limits vocabulary to k most likely tokens. Use 0 to disable}
 
 \item{top_p}{Top-p (nucleus) sampling parameter (default: 0.9). Cumulative probability threshold for token selection}
 
-\item{temperature}{Sampling temperature (default: 0.8). Higher values (>1) increase randomness, lower values (<1) make output more deterministic}
+\item{temperature}{Sampling temperature (default: 0.7). Higher values (>1) increase randomness, lower values (<1) make output more deterministic}
 
 \item{repeat_last_n}{Number of recent tokens to consider for repetition penalty (default: 64)}
 
 \item{penalty_repeat}{Repetition penalty strength (default: 1.1). Values >1 discourage repetition, <1 encourage it}
 
-\item{seed}{Random seed for reproducible generation (default: -1 for random). Use positive integers for deterministic output}
+\item{seed}{Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output}
+
+\item{clean}{If TRUE, strip common chat-template control tokens from the generated text (default: FALSE).}
 }
 \value{
 Character string containing the generated text

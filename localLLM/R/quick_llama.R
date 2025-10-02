@@ -10,7 +10,7 @@
 #' chat template formatting and system prompts for instruction-tuned models.
 #'
 #' @param prompt Character string or vector of prompts to process
-#' @param model Model URL or path (default: Gemma 3 4B IT Q4_K_S)
+#' @param model Model URL or path (default: Llama 3.2 3B Instruct Q5_K_M)
 #' @param n_threads Number of threads (default: auto-detect)
 #' @param n_gpu_layers Number of GPU layers (default: auto-detect)
 #' @param n_ctx Context size (default: 2048)
@@ -32,6 +32,8 @@
 #' @param seed Random seed for reproducibility (default: 1234)
 #' @param progress Show a console progress bar when running parallel generation.
 #'   Default: \code{interactive()}. Has no effect for single-prompt runs.
+#' @param clean Whether to strip chat-template control tokens from the generated output.
+#'   Defaults to \code{TRUE}.
 #' @param ... Additional parameters passed to generate() or generate_parallel()
 #'
 #' @return Character string (single prompt) or named list (multiple prompts)
@@ -87,6 +89,7 @@ quick_llama <- function(prompt,
                         stream = FALSE,
                         seed = 1234L,
                         progress = interactive(),
+                        clean = TRUE,
                         ...) {
   
   # Validate inputs
@@ -176,11 +179,15 @@ quick_llama <- function(prompt,
                        repeat_last_n, penalty_repeat, seed, stream, progress)
   }
   
-  # Clean up special tokens from output
-  if (auto_format && is.character(result)) {
-    if (length(result) == 1) {
-      result <- .clean_output(result)
-    } else {
+  # Clean up special tokens from output when requested
+  if (isTRUE(clean)) {
+    if (is.character(result)) {
+      if (length(result) == 1) {
+        result <- .clean_output(result)
+      } else {
+        result <- lapply(as.list(result), .clean_output)
+      }
+    } else if (is.list(result)) {
       result <- lapply(result, .clean_output)
     }
   }
@@ -209,36 +216,40 @@ quick_llama_reset <- function() {
 #' @return Cleaned text
 #' @noRd
 .clean_output <- function(text) {
-  if (!is.character(text) || length(text) == 0) return(text)
-  
-  # Remove Llama-3.2 specific chat template tokens (highest priority)
-  text <- gsub("<\\|eot_id\\|>.*$", "", text)
-  text <- gsub("<\\|start_header_id\\|>.*$", "", text) 
-  text <- gsub("<\\|end_header_id\\|>.*$", "", text)
-  
-  # Remove other common chat template special tokens
-  text <- gsub("<\\|im_start\\|>.*$", "", text)
-  text <- gsub("<\\|im_end\\|>.*$", "", text)
-  text <- gsub("<\\|end\\|>.*$", "", text)
-  text <- gsub("<\\|assistant\\|>.*$", "", text)
-  text <- gsub("<\\|user\\|>.*$", "", text)
-  text <- gsub("<\\|system\\|>.*$", "", text)
-  
-  # Remove any remaining template tokens (catch-all patterns)
-  text <- gsub("<\\|[^|]+\\|>.*$", "", text)
-  text <- gsub("<[^>]*>.*$", "", text)
-  
-  # Trim whitespace
+  if (!is.character(text) || length(text) == 0) {
+    return(text)
+  }
+
+  # Normalise line endings to simplify regex handling
+  text <- gsub('\r\n', '\n', text, perl = TRUE)
+
+  # Remove chat template markers such as <|start_header|>, <|im_start|>, etc.
+  text <- gsub("<[|｜][^>|｜]+[|｜]>(?:assistant|user|system)?\\s*", "", text, perl = TRUE, ignore.case = TRUE)
+
+  # Remove partially emitted control tokens at the end of the string (e.g. '<|start_header')
+  text <- gsub("<[|｜][^>｜]*$", "", text, perl = TRUE)
+
+  # Strip bracket-based instruction markers used by several instruct models
+  text <- gsub("\\[/?INST\\]", "", text, perl = TRUE)
+  text <- gsub("<<SYS>>|<</SYS>>", "", text, perl = TRUE)
+  text <- gsub("</?s>", "", text, ignore.case = TRUE, perl = TRUE)
+  text <- gsub("</?(bos|eos)>", "", text, ignore.case = TRUE, perl = TRUE)
+
+  # Remove Gemma-specific turn markers
+  text <- gsub("<start_of_turn>(?:user|model|assistant|system)?\\s*", "", text, perl = TRUE, ignore.case = TRUE)
+  text <- gsub("<end_of_turn>\\s*", "", text, perl = TRUE, ignore.case = TRUE)
+
+  # Trim whitespace after removals
   text <- trimws(text)
-  
-  return(text)
+
+  text
 }
 
 #' Get default model URL
 #' @return Default model URL
 #' @noRd
 .get_default_model <- function() {
-  "https://huggingface.co/MaziyarPanahi/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it.Q4_K_S.gguf"
+  "https://huggingface.co/unsloth/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q5_K_M.gguf"
 }
 
 #' Detect optimal GPU layers
