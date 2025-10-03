@@ -428,5 +428,5 @@ cat(response)
 ```
 
 ### Report bugs
-Please report bugs to **xu2009 \[at\] purdue.edu** with your sample
+Please report bugs to **xu2009@purdue.edu** with your sample
 code and data file. Much appreciated!

@@ -5,7 +5,7 @@ Version: 1.0.1
 Date: 2025-09-27
 Authors@R: c(
     person("Eddie", "Yang", role = "aut", comment = c(ORCID = "0000-0002-3696-322")), 
-    person("Yaosheng", "Xu", role = c("aut", "cre"), email = "xu2009@purdue.edu")
+    person("Yaosheng", "Xu", role = c("aut", "cre"), email = "xu2009@purdue.edu", comment = c(ORCID = "0009-0006-8138-369X"))
     )
 Author: Eddie Yang [aut], Yaosheng Xu [aut, cre]
 Maintainer: Yaosheng Xu <xu2009@purdue.edu>
