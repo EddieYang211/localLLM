@@ -166,7 +166,7 @@ news_prompt <- paste(
   "Title: UPDATE: Australia's Fairfax Eyes Role In Media Shake-Up",
   "Description: SYDNEY (Dow Jones)--As investors speculate about the future landscape of the Australian media industry, newspaper publisher John Fairfax Holdings Ltd.",
   "",
-  "Category:",
+  "Category:.",
   sep = "\n"
 )
 
