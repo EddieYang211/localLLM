@@ -156,13 +156,18 @@ context_create <- function(model, n_ctx = 2048L, n_threads = 4L, n_seq_max = 1L,
   if (!inherits(model, "localllm_model")) {
     stop("Expected a localllm_model object", call. = FALSE)
   }
-  
-  .Call("c_r_context_create",
-        model,
-        as.integer(n_ctx),
-        as.integer(n_threads), 
-        as.integer(n_seq_max),
-        as.integer(verbosity))
+
+  ctx <- .Call("c_r_context_create",
+               model,
+               as.integer(n_ctx),
+               as.integer(n_threads),
+               as.integer(n_seq_max),
+               as.integer(verbosity))
+
+  # Store model reference in context for auto-tokenization support in generate()
+  attr(ctx, "model") <- model
+
+  ctx
 }
 
 #' Convert Text to Token IDs
@@ -233,11 +238,9 @@ tokenize <- function(model, text, add_special = TRUE) {
 #' recovered_text <- detokenize(model, tokens)
 #' print(recovered_text)  # Should match original_text
 #' 
-#' # Detokenize generated tokens
+#' # Generate and display text
 #' ctx <- context_create(model)
-#' input_tokens <- tokenize(model, "The weather is")
-#' output_tokens <- generate(ctx, input_tokens, max_tokens = 10)
-#' generated_text <- detokenize(model, output_tokens)
+#' generated_text <- generate(ctx, "The weather is", max_tokens = 10)
 #' 
 #' # Inspect individual tokens
 #' single_token <- c(123)  # Some token ID
@@ -303,18 +306,18 @@ apply_chat_template <- function(model, messages, template = NULL, add_assistant 
 
 #' Generate Text Using Language Model Context
 #'
-#' Generates text using a loaded language model context. This is a low-level function
-#' that requires pre-tokenized input. For easier text generation from plain text,
-#' consider using \code{\link{quick_llama}} instead.
+#' Generates text using a loaded language model context with automatic tokenization.
+#' Simply provide a text prompt and the model will handle tokenization internally.
+#' This function now has a unified API with \code{\link{generate_parallel}}.
 #'
 #' @param context A context object created with \code{\link{context_create}}
-#' @param tokens Integer vector of input tokens. Use \code{\link{tokenize}} to convert text to tokens
+#' @param prompt Character string containing the input text prompt
 #' @param max_tokens Maximum number of tokens to generate (default: 100). Higher values produce longer responses
-#' @param top_k Top-k sampling parameter (default: 20). Limits vocabulary to k most likely tokens. Use 0 to disable
-#' @param top_p Top-p (nucleus) sampling parameter (default: 0.9). Cumulative probability threshold for token selection
-#' @param temperature Sampling temperature (default: 0.7). Higher values (>1) increase randomness, lower values (<1) make output more deterministic
-#' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 64)
-#' @param penalty_repeat Repetition penalty strength (default: 1.1). Values >1 discourage repetition, <1 encourage it
+#' @param top_k Top-k sampling parameter (default: 40). Limits vocabulary to k most likely tokens. Use 0 to disable
+#' @param top_p Top-p (nucleus) sampling parameter (default: 1.0). Cumulative probability threshold for token selection
+#' @param temperature Sampling temperature (default: 0.0). Set to 0 for deterministic greedy decoding. Higher values increase randomness
+#' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable
+#' @param penalty_repeat Repetition penalty strength (default: 1.0). Values >1 discourage repetition. Set to 1.0 to disable
 #' @param seed Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output
 #' @param clean If TRUE, strip common chat-template control tokens from the generated text (default: FALSE).
 #' @return Character string containing the generated text
@@ -324,39 +327,55 @@ apply_chat_template <- function(model, messages, template = NULL, add_assistant 
 #' # Load model and create context
 #' model <- model_load("path/to/model.gguf")
 #' ctx <- context_create(model, n_ctx = 2048)
-#' 
-#' # Tokenize input text
-#' tokens <- tokenize(model, "Hello, how are you?")
-#' 
-#' # Generate response
-#' response <- generate(ctx, tokens, max_tokens = 50, temperature = 0.7)
-#' 
+#'
+#' # Generate deterministic response (default behavior)
+#' response <- generate(ctx, "Hello, how are you?", max_tokens = 50)
+#'
 #' # Creative writing with higher temperature
-#' creative_tokens <- tokenize(model, "Once upon a time")
-#' story <- generate(ctx, creative_tokens, max_tokens = 200, temperature = 1.2)
-#' 
-#' # Deterministic generation with seed
-#' predictable <- generate(ctx, tokens, max_tokens = 30, temperature = 0.5, seed = 42)
+#' story <- generate(ctx, "Once upon a time", max_tokens = 200, temperature = 0.8)
+#'
+#' # Prevent repetition
+#' no_repeat <- generate(ctx, "Tell me about AI",
+#'                      repeat_last_n = 64,
+#'                      penalty_repeat = 1.1)
+#'
+#' # Clean output (remove special tokens)
+#' clean_output <- generate(ctx, "Explain quantum physics", clean = TRUE)
 #' }
-#' @seealso \code{\link{quick_llama}}, \code{\link{generate_parallel}}, \code{\link{tokenize}}, \code{\link{context_create}}
-generate <- function(context, tokens, max_tokens = 100L, top_k = 20L, top_p = 0.9,
-                     temperature = 0.7, repeat_last_n = 64L, penalty_repeat = 1.1,
+#' @seealso \code{\link{quick_llama}}, \code{\link{generate_parallel}}, \code{\link{context_create}}
+generate <- function(context, prompt, max_tokens = 100L, top_k = 40L, top_p = 1.0,
+                     temperature = 0.0, repeat_last_n = 0L, penalty_repeat = 1.0,
                      seed = 1234L, clean = FALSE) {
   .ensure_backend_loaded()
   if (!inherits(context, "localllm_context")) {
     stop("Expected a localllm_context object", call. = FALSE)
   }
-  
+
+  # Validate prompt input
+  if (!is.character(prompt) || length(prompt) != 1) {
+    stop("prompt must be a single character string", call. = FALSE)
+  }
+
+  # Extract model from context for tokenization
+  model <- attr(context, "model")
+  if (is.null(model)) {
+    stop("Context must have an associated model. Please recreate the context using context_create().",
+         call. = FALSE)
+  }
+
+  # Auto-tokenize the prompt
+  tokens <- tokenize(model, prompt, add_special = TRUE)
+
   result <- .Call("c_r_generate",
-        context,
-        as.integer(tokens),
-        as.integer(max_tokens),
-        as.integer(top_k),
-        as.numeric(top_p),
-        as.numeric(temperature),
-        as.integer(repeat_last_n),
-        as.numeric(penalty_repeat),
-        as.integer(seed))
+                  context,
+                  tokens,
+                  as.integer(max_tokens),
+                  as.integer(top_k),
+                  as.numeric(top_p),
+                  as.numeric(temperature),
+                  as.integer(repeat_last_n),
+                  as.numeric(penalty_repeat),
+                  as.integer(seed))
 
   if (isTRUE(clean)) {
     result <- .clean_output(result)
@@ -365,25 +384,25 @@ generate <- function(context, tokens, max_tokens = 100L, top_k = 20L, top_p = 0.
   result
 }
 
-#' Generate text in parallel
+#' Generate Text in Parallel for Multiple Prompts
 #'
-#' @param context A context object
-#' @param prompts Character vector of prompts
-#' @param max_tokens Maximum tokens to generate (default: 100)
-#' @param top_k Top-k sampling (default: 40)
-#' @param top_p Top-p sampling (default: 0.9)
-#' @param temperature Sampling temperature (default: 0.8)
-#' @param repeat_last_n Repetition penalty last n tokens (default: 64)
-#' @param penalty_repeat Repetition penalty strength (default: 1.1)
-#' @param seed Random seed (default: -1 for random)
+#' @param context A context object created with \code{\link{context_create}}
+#' @param prompts Character vector of input text prompts
+#' @param max_tokens Maximum number of tokens to generate (default: 100)
+#' @param top_k Top-k sampling parameter (default: 40). Limits vocabulary to k most likely tokens
+#' @param top_p Top-p (nucleus) sampling parameter (default: 1.0). Cumulative probability threshold for token selection
+#' @param temperature Sampling temperature (default: 0.0). Set to 0 for deterministic greedy decoding. Higher values increase randomness
+#' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable
+#' @param penalty_repeat Repetition penalty strength (default: 1.0). Values >1 discourage repetition. Set to 1.0 to disable
+#' @param seed Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output
 #' @param progress If \code{TRUE}, displays a console progress bar indicating batch
 #'   completion status while generations are running (default: FALSE).
 #' @param clean If TRUE, remove common chat-template control tokens from each generated text (default: FALSE).
 #' @return Character vector of generated texts
 #' @export
-generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, top_p = 0.9,
-                              temperature = 0.8, repeat_last_n = 64L, penalty_repeat = 1.1,
-                              seed = -1L, progress = FALSE, clean = FALSE) {
+generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, top_p = 1.0,
+                              temperature = 0.0, repeat_last_n = 0L, penalty_repeat = 1.0,
+                              seed = 1234L, progress = FALSE, clean = FALSE) {
   .ensure_backend_loaded()
   if (!inherits(context, "localllm_context")) {
     stop("Expected a localllm_context object", call. = FALSE)

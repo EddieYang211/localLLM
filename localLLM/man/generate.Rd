@@ -6,13 +6,13 @@
 \usage{
 generate(
   context,
-  tokens,
+  prompt,
   max_tokens = 100L,
-  top_k = 20L,
-  top_p = 0.9,
-  temperature = 0.7,
-  repeat_last_n = 64L,
-  penalty_repeat = 1.1,
+  top_k = 40L,
+  top_p = 1,
+  temperature = 0,
+  repeat_last_n = 0L,
+  penalty_repeat = 1,
   seed = 1234L,
   clean = FALSE
 )
@@ -20,19 +20,19 @@ generate(
 \arguments{
 \item{context}{A context object created with \code{\link{context_create}}}
 
-\item{tokens}{Integer vector of input tokens. Use \code{\link{tokenize}} to convert text to tokens}
+\item{prompt}{Character string containing the input text prompt}
 
 \item{max_tokens}{Maximum number of tokens to generate (default: 100). Higher values produce longer responses}
 
-\item{top_k}{Top-k sampling parameter (default: 20). Limits vocabulary to k most likely tokens. Use 0 to disable}
+\item{top_k}{Top-k sampling parameter (default: 40). Limits vocabulary to k most likely tokens. Use 0 to disable}
 
-\item{top_p}{Top-p (nucleus) sampling parameter (default: 0.9). Cumulative probability threshold for token selection}
+\item{top_p}{Top-p (nucleus) sampling parameter (default: 1.0). Cumulative probability threshold for token selection}
 
-\item{temperature}{Sampling temperature (default: 0.7). Higher values (>1) increase randomness, lower values (<1) make output more deterministic}
+\item{temperature}{Sampling temperature (default: 0.0). Set to 0 for deterministic greedy decoding. Higher values increase randomness}
 
-\item{repeat_last_n}{Number of recent tokens to consider for repetition penalty (default: 64)}
+\item{repeat_last_n}{Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable}
 
-\item{penalty_repeat}{Repetition penalty strength (default: 1.1). Values >1 discourage repetition, <1 encourage it}
+\item{penalty_repeat}{Repetition penalty strength (default: 1.0). Values >1 discourage repetition. Set to 1.0 to disable}
 
 \item{seed}{Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output}
 
@@ -42,9 +42,9 @@ generate(
 Character string containing the generated text
 }
 \description{
-Generates text using a loaded language model context. This is a low-level function
-that requires pre-tokenized input. For easier text generation from plain text,
-consider using \code{\link{quick_llama}} instead.
+Generates text using a loaded language model context with automatic tokenization.
+Simply provide a text prompt and the model will handle tokenization internally.
+This function now has a unified API with \code{\link{generate_parallel}}.
 }
 \examples{
 \dontrun{
@@ -52,20 +52,21 @@ consider using \code{\link{quick_llama}} instead.
 model <- model_load("path/to/model.gguf")
 ctx <- context_create(model, n_ctx = 2048)
 
-# Tokenize input text
-tokens <- tokenize(model, "Hello, how are you?")
-
-# Generate response
-response <- generate(ctx, tokens, max_tokens = 50, temperature = 0.7)
+# Generate deterministic response (default behavior)
+response <- generate(ctx, "Hello, how are you?", max_tokens = 50)
 
 # Creative writing with higher temperature
-creative_tokens <- tokenize(model, "Once upon a time")
-story <- generate(ctx, creative_tokens, max_tokens = 200, temperature = 1.2)
+story <- generate(ctx, "Once upon a time", max_tokens = 200, temperature = 0.8)
 
-# Deterministic generation with seed
-predictable <- generate(ctx, tokens, max_tokens = 30, temperature = 0.5, seed = 42)
+# Prevent repetition
+no_repeat <- generate(ctx, "Tell me about AI",
+                     repeat_last_n = 64,
+                     penalty_repeat = 1.1)
+
+# Clean output (remove special tokens)
+clean_output <- generate(ctx, "Explain quantum physics", clean = TRUE)
 }
 }
 \seealso{
-\code{\link{quick_llama}}, \code{\link{generate_parallel}}, \code{\link{tokenize}}, \code{\link{context_create}}
+\code{\link{quick_llama}}, \code{\link{generate_parallel}}, \code{\link{context_create}}
 }

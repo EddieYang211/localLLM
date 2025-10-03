@@ -15,15 +15,15 @@
 #' @param n_gpu_layers Number of GPU layers (default: auto-detect)
 #' @param n_ctx Context size (default: 2048)
 #' @param max_tokens Maximum tokens to generate (default: 100)
-#' @param temperature Sampling temperature (default: 0.7)
-#' @param top_p Top-p sampling (default: 0.9)
-#' @param top_k Top-k sampling (default: 40)
+#' @param temperature Sampling temperature (default: 0.0). Set to 0 for deterministic output. Higher values increase randomness
+#' @param top_p Top-p sampling (default: 1.0). Set to 0.9 for nucleus sampling
+#' @param top_k Top-k sampling (default: 40). Limits vocabulary to k most likely tokens
 #' @param verbosity Backend logging verbosity (default: 1L). Higher values show more
 #'   detail: \code{0} prints only errors, \code{1} adds warnings, \code{2}
 #'   includes informational messages, and \code{3} enables the most verbose debug
 #'   output.
-#' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 64)
-#' @param penalty_repeat Repetition penalty strength (default: 1.1)
+#' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable
+#' @param penalty_repeat Repetition penalty strength (default: 1.0). Set to 1.0 to disable
 #' @param min_p Minimum probability threshold (default: 0.05)
 #' @param system_prompt System prompt to add to conversation (default: "You are a helpful assistant.")
 #' @param auto_format Whether to automatically apply chat template formatting (default: TRUE)
@@ -42,34 +42,32 @@
 #'
 #' @examples
 #' \dontrun{
-#' # Simple usage with default chat template and system prompt
+#' # Simple usage with default settings (deterministic)
 #' response <- quick_llama("Hello, how are you?")
-#' 
+#'
 #' # Raw text generation without chat template
-#' raw_response <- quick_llama("Complete this: The capital of France is", 
+#' raw_response <- quick_llama("Complete this: The capital of France is",
 #'                            auto_format = FALSE)
-#' 
+#'
 #' # Custom system prompt
 #' code_response <- quick_llama("Write a Python hello world program",
 #'                             system_prompt = "You are a Python programming expert.")
-#' 
-#' # No system prompt
-#' response <- quick_llama("What is AI?", system_prompt = NULL)
-#' 
-#' # Multiple prompts with custom settings
+#'
+#' # Creative writing with higher temperature
+#' creative_response <- quick_llama("Tell me a story",
+#'                                  temperature = 0.8,
+#'                                  max_tokens = 200)
+#'
+#' # Prevent repetition
+#' no_repeat <- quick_llama("Explain AI",
+#'                         repeat_last_n = 64,
+#'                         penalty_repeat = 1.1)
+#'
+#' # Multiple prompts (parallel processing)
 #' responses <- quick_llama(c("Summarize AI", "Explain quantum computing"),
-#'                         temperature = 0.5, max_tokens = 150)
-#' 
-#' # High creativity with verbose output
-#' creative_response <- quick_llama("Tell me a story", 
-#'                                  temperature = 0.9, 
-#'                                  max_tokens = 200,
-#'                                  verbosity = 0L)
-#' 
-#' # Custom chat template (if supported by model)
-#' custom_response <- quick_llama("Explain photosynthesis",
-#'                               chat_template = "<|user|>\n{user}\n<|assistant|>\n")
+#'                         max_tokens = 150)
 #' }
+#'
 quick_llama <- function(prompt,
                         model = .get_default_model(),
                         n_threads = NULL,
@@ -77,11 +75,11 @@ quick_llama <- function(prompt,
                         n_ctx = 2048L,
                         verbosity = 1L,
                         max_tokens = 100L,
-                        top_k = 20L,
-                        top_p = 0.9,
-                        temperature = 0.7,
-                        repeat_last_n = 64L,
-                        penalty_repeat = 1.1,
+                        top_k = 40L,
+                        top_p = 1.0,
+                        temperature = 0.0,
+                        repeat_last_n = 0L,
+                        penalty_repeat = 1.0,
                         min_p = 0.05,
                         system_prompt = "You are a helpful assistant.",
                         auto_format = TRUE,
@@ -347,15 +345,9 @@ quick_llama_reset <- function() {
                              repeat_last_n, penalty_repeat, seed, stream, ...) {
   
   context <- .quick_llama_env$context
-  model <- .quick_llama_env$model
-  
-  # Tokenize prompt
-  tokens <- tokenize(model, prompt, add_special = TRUE)
-  
-  # Generate
-  # Generate text (streaming flag is available for future use)
+  # Generate text (auto-tokenization is now handled by generate())
   message("Generating...")
-  result <- generate(context, tokens, 
+  result <- generate(context, prompt,
                     max_tokens = max_tokens,
                     top_k = top_k,
                     top_p = top_p,

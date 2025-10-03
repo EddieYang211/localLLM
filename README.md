@@ -118,10 +118,9 @@ messages <- list(
 # This converts the list of messages into a single, correctly formatted string that the model understands.
 formatted_prompt <- apply_chat_template(model, messages)
 
-# 5. Tokenize, generate, and detokenize to get the final text response
-tokens <- tokenize(model, formatted_prompt)
-output_tokens <- generate(ctx, tokens, max_tokens = 200, temperature = 0.3)
-output_tokens
+# 5. Generate response directly from the formatted prompt
+output <- generate(ctx, formatted_prompt, max_tokens = 200)
+output
 ```
 
 #### Parallel (Batch) Generation with Chat Templates
@@ -217,23 +216,17 @@ for (i in seq_len(nrow(data_sample))) {
     
     # 4. Apply chat template
     formatted_prompt <- apply_chat_template(model, messages)
-    
-    # 5. Tokenize and generate
-    tokens <- tokenize(model, formatted_prompt)
-    output_tokens <- generate(
-      ctx, tokens,
+
+    # 5. Generate response
+    output <- generate(
+      ctx, formatted_prompt,
       max_tokens = 5L,
-      top_k = 20L,
-      top_p = 0.95,
-      temperature = 0.7,
-      repeat_last_n = 32L,
-      penalty_repeat = 1.05,
       seed = 1234L,
       clean = TRUE
     )
-    
-    # Store the result (output_tokens is already text)
-    data_sample$LLM_result[i] <- trimws(sub("\\.$", "", gsub("[\n<].*$", "", output_tokens)))
+
+    # Store the result
+    data_sample$LLM_result[i] <- trimws(sub("\\.$", "", gsub("[\n<].*$", "", output)))
     
   }, error = function(e) {
     cat("Error on item", i, ":", e$message, "\n")
@@ -290,11 +283,6 @@ tryCatch({
     context = ctx,
     prompts = all_prompts,
     max_tokens = 5L,
-    top_k = 20L,
-    top_p = 0.95,
-    temperature = 0.7,
-    repeat_last_n = 32L,
-    penalty_repeat = 1.05,
     seed = 1234L,
     progress = TRUE,
     clean = TRUE
@@ -340,17 +328,24 @@ All generation functions (`quick_llama`, `generate`, `generate_parallel`) accept
 
 These parameters control the creativity and randomness of the output.
 
--   **`temperature`**: A value from 0.0 to >1.0. Lower values (e.g., `0.2`) make the output more deterministic and focused, which is good for factual or classification tasks. Higher values (e.g., `0.9`) encourage more creative and diverse responses.
--   **`top_k`**: An integer (e.g., `40`). The model considers only the top `k` most likely tokens at each step.
--   **`top_p`**: A numeric value (e.g., `0.9`). The model selects from the smallest set of tokens whose cumulative probability exceeds `p`.
--   **`min_p`**: A numeric value (e.g., `0.05`). Sets a minimum probability threshold for token selection.
+-   **`temperature`**: Controls randomness. Default is `0.0` (greedy/deterministic). Set to 0 for factual tasks. Higher values (e.g., `0.7`-`1.0`) make output more creative and diverse.
+-   **`top_k`**: Default is `40`. The model considers only the top `k` most likely tokens at each step. Higher values increase diversity.
+-   **`top_p`**: Default is `1.0` (disabled). Nucleus sampling threshold. Set to `0.9` to select from tokens whose cumulative probability exceeds 90%.
+-   **`repeat_last_n`**: Default is `0` (disabled). Number of recent tokens to consider for repetition penalty.
+-   **`penalty_repeat`**: Default is `1.0` (disabled). Set to values >1.0 (e.g., `1.1`) to discourage repetition.
 
 ```r
-# A factual, deterministic response
-factual <- quick_llama("What is the capital of France?", temperature = 0.1, top_k = 1)
+# Deterministic response (default behavior)
+factual <- quick_llama("What is the capital of France?")
 
-# A more creative response
-creative <- quick_llama("Write a short story about a robot who discovers music.", temperature = 0.8)
+# Creative response with higher temperature
+creative <- quick_llama("Write a short story about a robot who discovers music.",
+                       temperature = 0.8)
+
+# Prevent repetition
+no_repeat <- quick_llama("Tell me about AI",
+                         repeat_last_n = 64,
+                         penalty_repeat = 1.1)
 ```
 
 #### Model Download
@@ -466,10 +461,9 @@ quick_llama("Tell me a joke", n_gpu_layers = 999)
 
 The `quick_llama()` function provides full control over the `llama.cpp` backend. Some other useful parameters include:
 
--   **`system_prompt` (character)**: Sets the initial instruction for the model to define its role or persona (e.g., `"You are a helpful R programming assistant."`).
+-   **`system_prompt` (character)**: Sets the initial instruction for the model to define its role or persona (default: `"You are a helpful assistant."`).
 -   **`n_threads` (integer)**: The number of CPU threads to use for processing. Defaults to auto-detection for optimal performance.
--   **`penalty_repeat` (numeric)**: A penalty applied to repeated tokens to discourage the model from getting stuck in loops. A common value is `1.1`.
--   **`seed` (integer)**: A random seed for sampling. Setting a seed (e.g., `seed = 1234`) ensures you get the exact same output for the same prompt every time, making your results reproducible.
+-   **`seed` (integer)**: Random seed for reproducible generation (default: `1234`). Setting a seed ensures you get the exact same output for the same prompt every time.
 -   **`verbosity` (integer)**: Controls the amount of backend logging information printed to the console (3=max, 0=errors only).
 
 ```r

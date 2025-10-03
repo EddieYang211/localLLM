@@ -32,11 +32,9 @@ tokens <- tokenize(model, original_text)
 recovered_text <- detokenize(model, tokens)
 print(recovered_text)  # Should match original_text
 
-# Detokenize generated tokens
+# Generate and display text
 ctx <- context_create(model)
-input_tokens <- tokenize(model, "The weather is")
-output_tokens <- generate(ctx, input_tokens, max_tokens = 10)
-generated_text <- detokenize(model, output_tokens)
+generated_text <- generate(ctx, "The weather is", max_tokens = 10)
 
 # Inspect individual tokens
 single_token <- c(123)  # Some token ID

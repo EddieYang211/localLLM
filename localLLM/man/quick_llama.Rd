@@ -12,11 +12,11 @@ quick_llama(
   n_ctx = 2048L,
   verbosity = 1L,
   max_tokens = 100L,
-  top_k = 20L,
-  top_p = 0.9,
-  temperature = 0.7,
-  repeat_last_n = 64L,
-  penalty_repeat = 1.1,
+  top_k = 40L,
+  top_p = 1,
+  temperature = 0,
+  repeat_last_n = 0L,
+  penalty_repeat = 1,
   min_p = 0.05,
   system_prompt = "You are a helpful assistant.",
   auto_format = TRUE,
@@ -46,15 +46,15 @@ output.}
 
 \item{max_tokens}{Maximum tokens to generate (default: 100)}
 
-\item{top_k}{Top-k sampling (default: 40)}
+\item{top_k}{Top-k sampling (default: 40). Limits vocabulary to k most likely tokens}
 
-\item{top_p}{Top-p sampling (default: 0.9)}
+\item{top_p}{Top-p sampling (default: 1.0). Set to 0.9 for nucleus sampling}
 
-\item{temperature}{Sampling temperature (default: 0.7)}
+\item{temperature}{Sampling temperature (default: 0.0). Set to 0 for deterministic output. Higher values increase randomness}
 
-\item{repeat_last_n}{Number of recent tokens to consider for repetition penalty (default: 64)}
+\item{repeat_last_n}{Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable}
 
-\item{penalty_repeat}{Repetition penalty strength (default: 1.1)}
+\item{penalty_repeat}{Repetition penalty strength (default: 1.0). Set to 1.0 to disable}
 
 \item{min_p}{Minimum probability threshold (default: 0.05)}
 
@@ -86,34 +86,32 @@ chat template formatting and system prompts for instruction-tuned models.
 }
 \examples{
 \dontrun{
-# Simple usage with default chat template and system prompt
+# Simple usage with default settings (deterministic)
 response <- quick_llama("Hello, how are you?")
 
 # Raw text generation without chat template
-raw_response <- quick_llama("Complete this: The capital of France is", 
+raw_response <- quick_llama("Complete this: The capital of France is",
                            auto_format = FALSE)
 
 # Custom system prompt
 code_response <- quick_llama("Write a Python hello world program",
                             system_prompt = "You are a Python programming expert.")
 
-# No system prompt
-response <- quick_llama("What is AI?", system_prompt = NULL)
+# Creative writing with higher temperature
+creative_response <- quick_llama("Tell me a story",
+                                 temperature = 0.8,
+                                 max_tokens = 200)
 
-# Multiple prompts with custom settings
+# Prevent repetition
+no_repeat <- quick_llama("Explain AI",
+                        repeat_last_n = 64,
+                        penalty_repeat = 1.1)
+
+# Multiple prompts (parallel processing)
 responses <- quick_llama(c("Summarize AI", "Explain quantum computing"),
-                        temperature = 0.5, max_tokens = 150)
-
-# High creativity with verbose output
-creative_response <- quick_llama("Tell me a story", 
-                                 temperature = 0.9, 
-                                 max_tokens = 200,
-                                 verbosity = 0L)
-
-# Custom chat template (if supported by model)
-custom_response <- quick_llama("Explain photosynthesis",
-                              chat_template = "<|user|>\n{user}\n<|assistant|>\n")
+                        max_tokens = 150)
 }
+
 }
 \seealso{
 \code{\link{model_load}}, \code{\link{generate}}, \code{\link{generate_parallel}}, \code{\link{install_localLLM}}

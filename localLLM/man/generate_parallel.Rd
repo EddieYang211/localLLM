@@ -2,40 +2,40 @@
 % Please edit documentation in R/api.R
 \name{generate_parallel}
 \alias{generate_parallel}
-\title{Generate text in parallel}
+\title{Generate Text in Parallel for Multiple Prompts}
 \usage{
 generate_parallel(
   context,
   prompts,
   max_tokens = 100L,
   top_k = 40L,
-  top_p = 0.9,
-  temperature = 0.8,
-  repeat_last_n = 64L,
-  penalty_repeat = 1.1,
-  seed = -1L,
+  top_p = 1,
+  temperature = 0,
+  repeat_last_n = 0L,
+  penalty_repeat = 1,
+  seed = 1234L,
   progress = FALSE,
   clean = FALSE
 )
 }
 \arguments{
-\item{context}{A context object}
+\item{context}{A context object created with \code{\link{context_create}}}
 
-\item{prompts}{Character vector of prompts}
+\item{prompts}{Character vector of input text prompts}
 
-\item{max_tokens}{Maximum tokens to generate (default: 100)}
+\item{max_tokens}{Maximum number of tokens to generate (default: 100)}
 
-\item{top_k}{Top-k sampling (default: 40)}
+\item{top_k}{Top-k sampling parameter (default: 40). Limits vocabulary to k most likely tokens}
 
-\item{top_p}{Top-p sampling (default: 0.9)}
+\item{top_p}{Top-p (nucleus) sampling parameter (default: 1.0). Cumulative probability threshold for token selection}
 
-\item{temperature}{Sampling temperature (default: 0.8)}
+\item{temperature}{Sampling temperature (default: 0.0). Set to 0 for deterministic greedy decoding. Higher values increase randomness}
 
-\item{repeat_last_n}{Repetition penalty last n tokens (default: 64)}
+\item{repeat_last_n}{Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable}
 
-\item{penalty_repeat}{Repetition penalty strength (default: 1.1)}
+\item{penalty_repeat}{Repetition penalty strength (default: 1.0). Values >1 discourage repetition. Set to 1.0 to disable}
 
-\item{seed}{Random seed (default: -1 for random)}
+\item{seed}{Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output}
 
 \item{progress}{If \code{TRUE}, displays a console progress bar indicating batch
 completion status while generations are running (default: FALSE).}
@@ -46,5 +46,5 @@ completion status while generations are running (default: FALSE).}
 Character vector of generated texts
 }
 \description{
-Generate text in parallel
+Generate Text in Parallel for Multiple Prompts
 }

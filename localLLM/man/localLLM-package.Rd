@@ -68,10 +68,8 @@ creative_text <- quick_llama("Write a poem about AI",
 model <- model_load("path/to/your/model.gguf")
 ctx <- context_create(model, n_ctx = 4096)
 
-# Manual tokenization and generation
-tokens <- tokenize(model, "The future of AI is")
-output <- generate(ctx, tokens, max_tokens = 100)
-text <- detokenize(model, output)
+# Direct text generation with auto-tokenization
+output <- generate(ctx, "The future of AI is", max_tokens = 100)
 }
 
 ### Batch Processing
