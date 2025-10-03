@@ -12,6 +12,7 @@ Description: Provides R bindings to the llama.cpp library for running large lang
     install_localLLM() to download the appropriate pre-compiled backend library for their
     system. Features include text generation, reproducible generation, and parallel inference.
 License: MIT + file LICENSE
+Depends: R (>= 3.6.0)
 Imports:
     Rcpp (>= 1.0.14),
     tools,

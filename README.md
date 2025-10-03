@@ -362,7 +362,7 @@ set_hf_token('hf_your_token_here')
 # set_hf_token('hf_your_token_here', persist = TRUE)
 
 # Now you can load gated models by URL
-model <- model_load('hf://google/gated-model/model.gguf')
+model <- model_load('https://huggingface.co/google/gated-model/resolve/main/model.gguf')
 ```
 
 You can also set `HF_TOKEN` manually via `Sys.setenv()` if you prefer to manage environment variables yourself.

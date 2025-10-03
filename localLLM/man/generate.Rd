@@ -28,7 +28,7 @@ generate(
 
 \item{top_p}{Top-p (nucleus) sampling parameter (default: 1.0). Cumulative probability threshold for token selection}
 
-\item{temperature}{Sampling temperature (default: 0.0). Set to 0 for deterministic greedy decoding. Higher values increase randomness}
+\item{temperature}{Sampling temperature (default: 0.0). Set to 0 for greedy decoding. Higher values increase creativity}
 
 \item{repeat_last_n}{Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable}
 
@@ -52,7 +52,6 @@ This function now has a unified API with \code{\link{generate_parallel}}.
 model <- model_load("path/to/model.gguf")
 ctx <- context_create(model, n_ctx = 2048)
 
-# Generate deterministic response (default behavior)
 response <- generate(ctx, "Hello, how are you?", max_tokens = 50)
 
 # Creative writing with higher temperature

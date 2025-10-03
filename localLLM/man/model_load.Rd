@@ -22,8 +22,6 @@ model_load(
 \item{model_path}{Path to local GGUF model file, URL, or cached model name. Supported URL formats:
 \itemize{
   \item \code{https://} - Direct download from web servers
-  \item \code{hf://} - Hugging Face model repository (hf://username/model/file.gguf)
-  \item \code{ollama://} - Ollama model format (experimental)
 }
 If you previously downloaded a model through this package you can supply the
 cached file name (or a distinctive fragment of it) instead of the full path
@@ -72,17 +70,18 @@ avoid repeated downloads.
 model <- model_load("/path/to/my_model.gguf")
 
 # Download from Hugging Face and cache locally
-model <- model_load("hf://microsoft/DialoGPT-medium/model.gguf")
+hf_path = "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf"
+model <- model_load(hf_path)
 
 # Load with GPU acceleration (offload 10 layers)
 model <- model_load("/path/to/model.gguf", n_gpu_layers = 10)
 
 # Download to custom cache directory
-model <- model_load("https://example.com/model.gguf", 
+model <- model_load(hf_path, 
                     cache_dir = "~/my_models")
 
 # Force fresh download (ignore cache)
-model <- model_load("https://example.com/model.gguf", 
+model <- model_load(hf_path, 
                     force_redownload = TRUE)
 
 # High-performance settings for large models

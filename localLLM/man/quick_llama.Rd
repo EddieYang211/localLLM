@@ -50,7 +50,7 @@ output.}
 
 \item{top_p}{Top-p sampling (default: 1.0). Set to 0.9 for nucleus sampling}
 
-\item{temperature}{Sampling temperature (default: 0.0). Set to 0 for deterministic output. Higher values increase randomness}
+\item{temperature}{Sampling temperature (default: 0.0). Higher values increase creativity}
 
 \item{repeat_last_n}{Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable}
 

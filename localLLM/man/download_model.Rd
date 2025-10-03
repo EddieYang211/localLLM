@@ -14,7 +14,7 @@ download_model(
 )
 }
 \arguments{
-\item{model_url}{URL of the model to download (supports https://, hf://, ollama://, etc.)}
+\item{model_url}{URL of the model to download (currently only supports https://)}
 
 \item{output_path}{Local path where to save the model (optional, will use cache if not provided)}
 
