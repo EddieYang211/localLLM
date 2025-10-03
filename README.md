@@ -26,17 +26,16 @@ install_localLLM()
 You can start running an LLM using quick_llama().
 
 ```r
-# Load the package
 library(localLLM)
 
 # Ask a question and get a response
-response <- quick_llama('Classify the sentiment of the following tweet into one of two categories: 
-  Positive or Negative.\n\nTweet: "This paper is amazing! I really like it."')
+response <- quick_llama('Classify the sentiment of the following tweet into one of two 
+  categories: Positive or Negative.\n\nTweet: "This paper is amazing! I really like it."')
 
 cat(response) # Output: The sentiment of this tweet is Positive.
 ```
 
-The `quick_llama()` function is a high-level wrapper designed for convenience. It automatically downloads and caches the default LLM `Llama-3.2-3B-Instruct-Q5_K_M.gguf` on its first run. You can easily customize the generation by passing arguments directly. For example, you can change the `temperature` for more creative responses or increase `max_tokens` for longer answers.
+`quick_llama()` is a high-level wrapper designed for convenience. It automatically downloads and caches the default LLM `Llama-3.2-3B-Instruct-Q5_K_M.gguf` on its first run. You can easily customize the generation by passing arguments directly. For example, you can change the `temperature` for more creative responses or increase `max_tokens` for longer answers.
 
 `quick_llama()` can process different types of input:
 *   If you provide a **single character string**, it performs a single generation.
@@ -49,11 +48,13 @@ The `quick_llama()` function is a high-level wrapper designed for convenience. I
 You can check the reproducibility of the result by running the same query multiple times. By default , all generation functions in **localLLM** (`quick_llama()`, `generate()`, and `generate_parallel()`) use deterministic greedy decoding with temperature = 0. Even when temperature > 0, results are reproducibile.
 
 ```r
-response1 <- quick_llama('Classify the sentiment of the following tweet into one of two categories: 
-  Positive or Negative.\n\nTweet: "This paper is amazing! I really like it."', temperature=0.9, seed=92092)
+response1 <- quick_llama('Classify the sentiment of the following tweet into one of two 
+  categories: Positive or Negative.\n\nTweet: "This paper is amazing! I really like it."', 
+  temperature=0.9, seed=92092)
 
-response2 <- quick_llama('Classify the sentiment of the following tweet into one of two categories: 
-  Positive or Negative.\n\nTweet: "This paper is amazing! I really like it."', temperature=0.9, seed=92092)
+response2 <- quick_llama('Classify the sentiment of the following tweet into one of two 
+  categories: Positive or Negative.\n\nTweet: "This paper is amazing! I really like it."', 
+  temperature=0.9, seed=92092)
 
 print(response1==response2)
 ```
@@ -72,7 +73,12 @@ The `localLLM` backend is powered by `llama.cpp` (commit `b5421`), which only su
 3. Click **“See all model results for "gguf"”** to view the full catalogue. As nof 2025-10-02 there are 128,493 GGUF models available.
 4. To narrow down to specific families - such as Gemma or Llama - include the model name together with `gguf` in the search query (e.g. `gemma gguf`).
 
-`quick_llama()` defaults to `Llama-3.2-3B-Instruct-Q5_K_M.gguf`, a GGUF version of the Llama-3.2-3B model. You can swap in any other GGUF model by passing adifferent URL or local path; refer to the function reference for the `model` argument to see all available options.
+`quick_llama()` defaults to `Llama-3.2-3B-Instruct-Q5_K_M.gguf`, a GGUF version of the Llama-3.2-3B model. You can swap in any other GGUF model by passing adifferent URL or local path; for example, to download and local another model from Hugging Face, simply locate the model url and do:
+
+```r
+model_load(
+  model_path="https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf")
+```
 
 ---
 
@@ -92,7 +98,8 @@ LLMs are trained to respond to specific formats that include roles (like "system
 
 ```r
 # 1. Load the model once
-# Using a large number for n_gpu_layers offloads as many layers as possible to GPU for faster computing.
+# Using a large number for n_gpu_layers offloads as many layers as possible 
+# to GPU for faster computing.
 model <- model_load(
   model = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
   n_gpu_layers = 999
@@ -102,14 +109,15 @@ model <- model_load(
 ctx <- context_create(model, n_ctx = 4096)
 
 # 3. Define the conversation using a list of messages
-# This is where you set the system prompt (the model's instructions) and the user prompt (your query).
+# This is where you set the system prompt and the user prompt (your query).
 messages <- list(
   list(role = "system", content = "You are a helpful R programming assistant who provides concise code examples."),
   list(role = "user", content = "How do I create a bar plot in ggplot2?")
 )
 
 # 4. Apply the model's built-in chat template
-# This converts the list of messages into a single, correctly formatted string that the model understands.
+# This converts the list of messages into a single, 
+# correctly formatted string that the model understands.
 formatted_prompt <- apply_chat_template(model, messages)
 
 # 5. Generate response directly from the formatted prompt
@@ -185,7 +193,8 @@ for (i in 1:nrow(ag_news_sample)) {
   messages <- list(
     list(role = "system", content = "You are a helpful assistant."),
     list(role = "user", content = paste0(
-      "Classify this news article into exactly one category: World, Sports, Business, or Sci/Tech. Respond with only the category name.\n\n",
+      "Classify this news article into exactly one category: World, Sports, Business, 
+      or Sci/Tech. Respond with only the category name.\n\n",
       "Title: ", ag_news_sample$title[i], "\n",
       "Description: ", substr(ag_news_sample$description[i], 1, 100), "\n\n",
       "Category:"
@@ -229,7 +238,8 @@ for (i in 1:nrow(ag_news_sample)) {
   messages <- list(
     list(role = "system", content = "You are a helpful assistant."),
     list(role = "user", content = paste0(
-      "Classify this news article into exactly one category: World, Sports, Business, or Sci/Tech. Respond with only the category name.\n\n",
+      "Classify this news article into exactly one category: World, Sports, Business, 
+      or Sci/Tech. Respond with only the category name.\n\n",
       "Title: ", ag_news_sample$title[i], "\n",
       "Description: ", substr(ag_news_sample$description[i], 1, 100), "\n\n",
       "Category:"
@@ -299,10 +309,12 @@ response <- quick_llama(
 )
 
 # Load a local model file you have already downloaded
-response <- quick_llama("Explain quantum physics in simple terms", model = "/path/to/your/local_model.gguf")
+response <- quick_llama("Explain quantum physics in simple terms", 
+  model = "/path/to/your/local_model.gguf")
 
 # Reuse a cached model by name fragment (auto-detected from cache)
-response <- quick_llama("Explain quantum physics in simple terms", model = "Llama-3.2")
+response <- quick_llama("Explain quantum physics in simple terms", 
+  model = "Llama-3.2")
 ```
 
 If you provide a name fragment instead of a full path/URL, the loader searches the cache first. A single match loads immediately; multiple matches are printed so you can choose interactively.
