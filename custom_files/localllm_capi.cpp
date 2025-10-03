@@ -11,6 +11,7 @@
 #include "common/sampling.h"
 #include <string>
 #include <vector>
+#include <memory>
 #include <stdexcept>
 #include <cstring>
 #include <ctime>
@@ -328,56 +329,62 @@ LOCALLLM_API localllm_error_code localllm_apply_chat_template(localllm_model_han
     return LOCALLLM_SUCCESS; 
 }
 
-LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, const int32_t* tokens_in, size_t n_tokens_in, int max_tokens, int top_k, float top_p, float temperature, int repeat_last_n, float penalty_repeat, int32_t seed, char** result_out, const char** error_message) { 
-    if (!ctx) { 
-        set_error(error_message, "Context handle is null."); 
-        return LOCALLLM_ERROR; 
-    } 
-    
+
+LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, const int32_t* tokens_in, size_t n_tokens_in, int max_tokens, int top_k, float top_p, float temperature, int repeat_last_n, float penalty_repeat, int32_t seed, char** result_out, const char** error_message) {
+    if (!ctx) {
+        set_error(error_message, "Context handle is null.");
+        return LOCALLLM_ERROR;
+    }
+
     // Fix: clear the KV cache to keep runs reproducible
     llama_kv_self_clear(ctx);
-    
-    const llama_model* model = llama_get_model(ctx); 
-    const struct llama_vocab* vocab = llama_model_get_vocab(model); 
-    llama_token eos_token = llama_vocab_eos(vocab); 
-    llama_batch batch = llama_batch_get_one((llama_token*)tokens_in, n_tokens_in); 
-    if (llama_decode(ctx, batch) != 0) { 
-        set_error(error_message, "Failed to decode input tokens."); 
-        return LOCALLLM_ERROR; 
-    } 
-    
-    // Fix: align sampler chain configuration with upstream examples
-    struct llama_sampler_chain_params sparams_chain = llama_sampler_chain_default_params(); 
-    struct llama_sampler* sampler_chain = llama_sampler_chain_init(sparams_chain); 
-    
-    // Configure samplers using the order and parameters from upstream batched.cpp
-    // Note: penalties sampler omitted because the upstream reference does not include it
-    llama_sampler_chain_add(sampler_chain, llama_sampler_init_top_k(top_k)); 
-    llama_sampler_chain_add(sampler_chain, llama_sampler_init_top_p(top_p, 1)); // min_keep=1 is standard
-    llama_sampler_chain_add(sampler_chain, llama_sampler_init_temp(temperature)); 
-    uint32_t final_seed = (seed < 0) ? time(NULL) : seed; 
-    llama_sampler_chain_add(sampler_chain, llama_sampler_init_dist(final_seed)); 
-    
-    std::string generated_text; 
+
+    const llama_model* model = llama_get_model(ctx);
+    const struct llama_vocab* vocab = llama_model_get_vocab(model);
+    llama_token eos_token = llama_vocab_eos(vocab);
+    llama_batch batch = llama_batch_get_one((llama_token*)tokens_in, n_tokens_in);
+    if (llama_decode(ctx, batch) != 0) {
+        set_error(error_message, "Failed to decode input tokens.");
+        return LOCALLLM_ERROR;
+    }
+
+    common_params_sampling sparams{};
+    sparams.top_k = top_k;
+    sparams.top_p = top_p;
+    sparams.temp = temperature;
+    sparams.penalty_last_n = repeat_last_n;
+    sparams.penalty_repeat = penalty_repeat;
+    sparams.seed = (seed < 0) ? time(NULL) : seed;
+    sparams.min_keep = 1;
+
+    struct common_sampler* sampler = common_sampler_init(model, sparams);
+    if (!sampler) {
+        set_error(error_message, "Failed to initialize sampler chain.");
+        return LOCALLLM_ERROR;
+    }
+
+    std::unique_ptr<common_sampler, decltype(&common_sampler_free)> sampler_guard(sampler, common_sampler_free);
+
+    std::string generated_text;
     std::vector<llama_token> recent_tokens; // Keep a sliding window of tokens for sequence detection
-    
-    for (int i = 0; i < max_tokens; ++i) { 
-        llama_token new_token = llama_sampler_sample(sampler_chain, ctx, -1); 
-        llama_sampler_accept(sampler_chain, new_token); 
-        
+
+    for (int i = 0; i < max_tokens; ++i) {
+        llama_token new_token = common_sampler_sample(sampler_guard.get(), ctx, -1);
+        common_sampler_accept(sampler_guard.get(), new_token, true);
+
         // Fix: combine standard EOG detection + multi-token sequence detection
-        
+
         // 1. Standard single-token EOG detection (retain official logic)
         if (llama_vocab_is_eog(vocab, new_token)) {
             break; // Stop generation immediately, do not add to output
         }
-        
+
         // 2. Multi-token EOG sequence detection (based on diagnostic script's accurate token sequences)
         recent_tokens.push_back(new_token);
         if (recent_tokens.size() > 7) {  // Keep a sliding window of last 7 tokens
             recent_tokens.erase(recent_tokens.begin());
         }
-        
+
         // Detect full EOG token sequences and exit before the final token is emitted
         if (recent_tokens.size() >= 7) {
             // <|eot_id|> sequence: [27, 91, 68, 354, 851, 91, 29]
@@ -389,7 +396,7 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
                     break;
                 }
             }
-            
+
             if (is_eot_complete) {
                 // Sequence detected; remove the six previously appended tokens and stop
                 std::string tokens_to_remove;
@@ -398,14 +405,14 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
                     tokens_to_remove += common_token_to_piece(ctx, tok);
                 }
                 // Safe removal
-                if (generated_text.length() >= tokens_to_remove.length() && 
+                if (generated_text.length() >= tokens_to_remove.length() &&
                     generated_text.substr(generated_text.length() - tokens_to_remove.length()) == tokens_to_remove) {
                     generated_text.erase(generated_text.length() - tokens_to_remove.length());
                 }
                 break; // Stop generation, do not add the 7th token
             }
-            
-            // <|end_header_id|> sequence: [27, 91, 408, 8932, 851, 91, 29]  
+
+            // <|end_header_id|> sequence: [27, 91, 408, 8932, 851, 91, 29]
             std::vector<llama_token> end_header_sequence = {27, 91, 408, 8932, 851, 91, 29};
             bool is_end_header_complete = true;
             for (size_t j = 0; j < 7; ++j) {
@@ -414,38 +421,37 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
                     break;
                 }
             }
-            
+
             if (is_end_header_complete) {
-                // Sequence detected; remove the six previously appended tokens and stop  
+                // Sequence detected; remove the six previously appended tokens and stop
                 std::string tokens_to_remove;
                 for (size_t k = 0; k < 6; ++k) {
                     llama_token tok = recent_tokens[recent_tokens.size() - 7 + k];
                     tokens_to_remove += common_token_to_piece(ctx, tok);
                 }
-                if (generated_text.length() >= tokens_to_remove.length() && 
+                if (generated_text.length() >= tokens_to_remove.length() &&
                     generated_text.substr(generated_text.length() - tokens_to_remove.length()) == tokens_to_remove) {
                     generated_text.erase(generated_text.length() - tokens_to_remove.length());
                 }
                 break; // Stop generation
             }
         }
-        
+
         // Only add non-EOG tokens to output
         const std::string token_str = common_token_to_piece(ctx, new_token);
         generated_text += token_str;
-        
-        llama_batch next_batch = llama_batch_get_one(&new_token, 1); 
-        if (llama_decode(ctx, next_batch) != 0) { 
-            llama_sampler_free(sampler_chain); 
-            set_error(error_message, "Failed to decode generated token."); 
-            return LOCALLLM_ERROR; 
-        } 
+
+        llama_batch next_batch = llama_batch_get_one(&new_token, 1);
+        if (llama_decode(ctx, next_batch) != 0) {
+            set_error(error_message, "Failed to decode generated token.");
+            return LOCALLLM_ERROR;
+        }
     }
-    
-    llama_sampler_free(sampler_chain); 
-    *result_out = string_to_c_str(generated_text); 
-    return LOCALLLM_SUCCESS; 
+
+    *result_out = string_to_c_str(generated_text);
+    return LOCALLLM_SUCCESS;
 }
+
 
 LOCALLLM_API localllm_error_code localllm_generate_parallel(
     localllm_context_handle ctx,
