@@ -3,7 +3,10 @@ Type: Package
 Title: Running local LLMs in R with llama.cpp Backend
 Version: 1.0.1
 Date: 2025-09-27
-Authors@R: c(person("Eddie", "Yang", role = "aut"), person("Yaosheng", "Xu", role = c("aut", "cre"), email = "xu2009@purdue.edu"))
+Authors@R: c(
+    person("Eddie", "Yang", role = "aut", comment = c(ORCID = "0000-0002-3696-322")), 
+    person("Yaosheng", "Xu", role = c("aut", "cre"), email = "xu2009@purdue.edu")
+    )
 Author: Eddie Yang [aut], Yaosheng Xu [aut, cre]
 Maintainer: Yaosheng Xu <xu2009@purdue.edu>
 Description: Provides R bindings to the llama.cpp library for running large language models.
