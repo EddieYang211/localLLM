@@ -1,22 +1,15 @@
 # localLLM
 
 [![R-CMD-check](https://github.com/EddieYang211/localLLM/workflows/R-CMD-check/badge.svg)](https://github.com/EddieYang211/localLLM/actions)
-[![codecov](https://codecov.io/gh/EddieYang211/localLLM/branch/master/graph/badge.svg)](https://codecov.io/gh/EddieYang211/localLLM)
 [![CRAN status](https://www.r-pkg.org/badges/version/localLLM)](https://CRAN.R-project.org/package/localLLM)
 
-## Tutorial
-
-### Brief Introduction
-
-The `localLLM` package provides a powerful and easy-to-use interface to run high-performance large language models (LLMs) directly in R. Backed by a complete `llama.cpp` integration, it allows you to generate text, analyze data, and build LLM-powered applications without relying on external APIs. Everything runs locally on your own machine, ensuring privacy and control.
-
-This tutorial will guide you from installation to advanced customization, showing you how to unlock the full potential of local LLMs in your R workflow.
+**localLLM** provides an easy-to-use interface to run large language models (LLMs) directly in R. It uses the performant `llama.cpp` library as the backend and allows you to generate text and analyze data with LLM. Everything runs locally on your own machine, completely free. Furthermore, it ensures reproducibility by default, making it a reliable tool for scientific research.
 
 ---
 
 ### Installation
 
-Getting started requires two simple steps: installing the R package from CRAN and then downloading the backend C++ library that handles the heavy computations.
+Getting started requires two simple steps: installing the R package from CRAN and then downloading the backend C++ library that handles the heavy computations. The `install_localLLM()` function automatically detects your operating system (Windows, macOS, Linux) and processor architecture to download the appropriate pre-compiled library.
 
 ```r
 # 1. Install the R package from CRAN
@@ -26,65 +19,66 @@ install.packages("localLLM")
 library(localLLM)
 install_localLLM()
 ```
-
-That's it! The `install_localLLM()` function automatically detects your operating system (Windows, macOS, Linux) and processor architecture to download the appropriate pre-compiled library.
-
----
-
-### About GGUF Models
-
-The `localLLM` backend is powered by `llama.cpp` (commit `b5421`), which only supports models
-stored in the GGUF format. In practice this means every model you load through
-`model_load()` or `quick_llama()` must be a `.gguf` file.
-
-GGUF (GGML Unified Format) is a compact binary container designed for local
-inference. It packages model weights together with tokenizer metadata and other
-runtime information, enabling fast loading on CPUs or GPUs without additional
-conversion steps.
-
-**Finding GGUF models on Hugging Face**
-
-1. Open [huggingface.co](https://huggingface.co).
-2. In the search bar type `gguf` and press Enter.
-3. Click **“See all model results for "gguf"”** to view the full catalogue. As
-   of 2025-09-25 there are 127,756 GGUF models available.
-4. To narrow down to specific families—such as Gemma or Llama—include the model
-   name together with `gguf` in the search query (e.g. `gemma gguf`).
-
-For a quick start, `quick_llama()` defaults to
-`Llama-3.2-3B-Instruct-Q5_K_M.gguf`, an instruction-tuned Llama 3.2 model that downloads
-automatically on first use. You can swap in any other GGUF model by passing a
-different URL or local path; refer to the function reference for the `model`
-argument to see all available options.
-
 ---
 
 ### Quick Start
 
-You can start generating text with a single function call.
+You can start running an LLM using quick_llama().
 
 ```r
 # Load the package
 library(localLLM)
 
 # Ask a question and get a response
-response <- quick_llama("What is machine learning in one sentence?")
-cat(response)
+response <- quick_llama('Classify the sentiment of the following tweet into one of two categories: 
+  Positive or Negative.\n\nTweet: "This paper is amazing! I really like it."')
+
+cat(response) # Output: The sentiment of this tweet is Positive.
 ```
 
-The `quick_llama()` function is a high-level wrapper designed for convenience. It uses sensible defaults for all parameters, including automatically downloading and caching `Llama-3.2-3B-Instruct-Q5_K_M.gguf` on its first run. You can easily customize the generation by passing arguments directly. For example, you can change the `temperature` for more creative responses or increase `max_tokens` for longer answers.
+The `quick_llama()` function is a high-level wrapper designed for convenience. It automatically downloads and caches the default LLM `Llama-3.2-3B-Instruct-Q5_K_M.gguf` on its first run. You can easily customize the generation by passing arguments directly. For example, you can change the `temperature` for more creative responses or increase `max_tokens` for longer answers.
 
-Importantly, `quick_llama()` is a smart function. It automatically detects the format of your input.
+`quick_llama()` can process different types of input:
 *   If you provide a **single character string**, it performs a single generation.
-*   If you provide a **vector of character strings**, it automatically switches to a highly efficient parallel generation mode, processing all of them at once.
-
-This makes it incredibly versatile for both interactive use and batch processing.
+*   If you provide a **vector of character strings**, it automatically switches to parallel generation mode, processing all of them at once.
 
 ---
 
-### Advanced Usage: Direct Control with Lower-Level Functions
+### Reproducibility
 
-For maximum control and efficiency, especially in complex applications, you can bypass the `quick_llama` wrapper and use the core lower-level functions directly. This approach avoids reloading the model for each task and gives you fine-grained control over the generation process.
+You can check the reproducibility of the result by running the same query multiple times. By default , all generation functions in **localLLM** (`quick_llama()`, `generate()`, and `generate_parallel()`) use deterministic greedy decoding with temperature = 0. Even when temperature > 0, results are reproducibile.
+
+```r
+response1 <- quick_llama('Classify the sentiment of the following tweet into one of two categories: 
+  Positive or Negative.\n\nTweet: "This paper is amazing! I really like it."', temperature=0.9, seed=92092)
+
+response2 <- quick_llama('Classify the sentiment of the following tweet into one of two categories: 
+  Positive or Negative.\n\nTweet: "This paper is amazing! I really like it."', temperature=0.9, seed=92092)
+
+print(response1==response2)
+```
+
+---
+
+### About GGUF Models
+
+The `localLLM` backend is powered by `llama.cpp` (commit `b5421`), which only supports models stored in the GGUF format. In practice this means every model you load through
+`model_load()` or `quick_llama()` must be a `.gguf` file.
+
+**Finding GGUF models on Hugging Face**
+
+1. Open [huggingface.co](https://huggingface.co).
+2. In the search bar type `gguf` and press Enter.
+3. Click **“See all model results for "gguf"”** to view the full catalogue. As nof 2025-10-02 there are 128,493 GGUF models available.
+4. To narrow down to specific families - such as Gemma or Llama - include the model name together with `gguf` in the search query (e.g. `gemma gguf`).
+
+`quick_llama()` defaults to `Llama-3.2-3B-Instruct-Q5_K_M.gguf`, a GGUF version of the Llama-3.2-3B model. You can swap in any other GGUF model by passing adifferent URL or local path; refer to the function reference for the `model` argument to see all available options.
+
+---
+
+### Direct Control with Lower-Level Functions
+
+For more control, you can bypass the `quick_llama` wrapper and use the core lower-level functions directly.
 
 The core workflow is:
 1.  **`model_load()`**: Load the model into memory once.
@@ -94,11 +88,11 @@ The core workflow is:
 
 #### Single Prompt Generation with Chat Templates
 
-Modern instruction-tuned models are trained to respond to specific formats that include roles (like "system" and "user") and special control tokens. Simply sending a raw string is often not enough. The `apply_chat_template()` function is essential for formatting your prompts correctly.
+LLMs are trained to respond to specific formats that include roles (like "system" and "user") and special control tokens. Simply sending a raw string is often not enough. The `apply_chat_template()` function is essential for formatting your prompts correctly.
 
 ```r
-# 1. Load the model once (e.g., enabling GPU acceleration)
-# Using a large number for n_gpu_layers offloads as many layers as possible.
+# 1. Load the model once
+# Using a large number for n_gpu_layers offloads as many layers as possible to GPU for faster computing.
 model <- model_load(
   model = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
   n_gpu_layers = 999
@@ -120,22 +114,26 @@ formatted_prompt <- apply_chat_template(model, messages)
 
 # 5. Generate response directly from the formatted prompt
 output <- generate(ctx, formatted_prompt, max_tokens = 200)
-output
+cat(output)
 ```
 
-#### Parallel (Batch) Generation with Chat Templates
+#### Parallel (Batch) Generation
 
-For the highest throughput, you can format multiple conversations and process them in a single batch with `generate_parallel()`. This is the most performant method for large-scale tasks.
+If you want to process multiple prompts at the same time or for large-scale tasks, you can use the `generate_parallel()` function.
 
 ```r
 # Assumes 'model' and 'ctx' are already loaded from the previous step
 
 # Define system and user prompts
 system_prompt <- "You are a helpful assistant."
+
+prompt_prefix <- "Classify the sentiment of the following tweet into one of two categories: 
+  Positive or Negative.\n\nTweet: "
+
 user_prompts <- c(
-  "Explain machine learning in one sentence.",
-  "What is deep learning?",
-  "Summarize the concept of AI ethics."
+  paste0(prompt_prefix, '"This paper is amazing! I really like it."'),
+  paste0(prompt_prefix, '"This paper is terrible! I hate it."'),
+  paste0(prompt_prefix, '"This paper is pretty good. I like it."')
 )
 
 # Use sapply() to apply the chat template to each user prompt
@@ -147,124 +145,93 @@ formatted_prompts <- sapply(user_prompts, function(user_content) {
   apply_chat_template(model, messages)
 })
 
-# Process all formatted prompts in a single, highly optimized parallel call
-results_parallel <- generate_parallel(ctx, formatted_prompts, max_tokens = 100)
-results_parallel
+# Process all formatted prompts in a single, parallel call
+results_parallel <- generate_parallel(ctx, formatted_prompts, max_tokens = 32)
+cat(results_parallel)
 ```
 
 ---
 
-### Running Example
+### Running Example: Text Classification
 
-In academic research, text classification is a highly demanded task—for example, classifying news articles by topic. To help users better understand how to leverage this package, we provide an example of performing text classification using open-source large language models. Specifically, we use a sample dataset containing 100 news headlines and their corresponding paragraphs, and demonstrate how to perform classification with three approaches: quick_llama, single-call functions, and parallel sequence functions.
-```r
-library(localLLM)
+Researchers often wish to use LLM for data classification/annotation - for example, classifying news articles by topic and tweets by sentiment. Here we provide an example of how users can use **localLLM** to perform text classification using open-source LLMs. Specifically, we use a sample dataset containing 100 news headlines and their corresponding descriptions, and demonstrate how to perform classification with two approaches: `generate()`, and `generate_parallel()`.
 
-news_prompt <- paste(
-  "Classify this news article into exactly one category: World, Sports, Business, or Sci/Tech. Respond with only the category name.",
-  "",
-  "Title: UPDATE: Australia's Fairfax Eyes Role In Media Shake-Up",
-  "Description: SYDNEY (Dow Jones)--As investors speculate about the future landscape of the Australian media industry, newspaper publisher John Fairfax Holdings Ltd.",
-  "",
-  "Category:.",
-  sep = "\n"
-)
-
-result <- quick_llama(news_prompt)
-result
-```
-
-#### For Loop for Running Example
+#### For Loop using `generate()`
 
 To process the entire dataframe, a `for` loop is a straightforward approach. This method processes each row sequentially.
 
 ```r
-library(dplyr)
 library(localLLM)
 
-# Load bundled sample dataset
+# Load sample dataset
 data("ag_news_sample", package = "localLLM")
 
-data_sample <- ag_news_sample %>%
-  mutate(LLM_result = NA_character_)
+ag_news_sample$LLM_result <- NA
 
 # 1. Load the model once
 model <- model_load(
   model = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
-  n_gpu_layers = 99,
-  verbosity = 1
+  n_gpu_layers = 99
 )
 
 # 2. Create a reusable context
-ctx <- context_create(model, n_ctx = 512, verbosity = 1)
+ctx <- context_create(model, n_ctx = 512)
 
 # Process each observation
-for (i in seq_len(nrow(data_sample))) {
-  cat("Processing", i, "of", nrow(data_sample), "\n")
+for (i in 1:nrow(ag_news_sample)) {
+  cat("Processing", i, "of", nrow(ag_news_sample), "\n")
   
-  tryCatch({
-    # 3. Define the conversation
-    messages <- list(
-      list(role = "system", content = "You are a helpful assistant."),
-      list(role = "user", content = paste0(
-        "Classify this news article into exactly one category: World, Sports, Business, or Sci/Tech. Respond with only the category name.\n\n",
-        "Title: ", data_sample$title[i], "\n",
-        "Description: ", substr(data_sample$description[i], 1, 100), "\n\n",
-        "Category:"
-      ))
-    )
-    
-    # 4. Apply chat template
-    formatted_prompt <- apply_chat_template(model, messages)
-
-    # 5. Generate response
-    output <- generate(
-      ctx, formatted_prompt,
-      max_tokens = 5L,
-      seed = 1234L,
-      clean = TRUE
-    )
-
-    # Store the result
-    data_sample$LLM_result[i] <- trimws(sub("\\.$", "", gsub("[\n<].*$", "", output)))
-    
-  }, error = function(e) {
-    cat("Error on item", i, ":", e$message, "\n")
-    data_sample$LLM_result[i] <- "ERROR"
-  })
-}
-
-# Compare with true labels
-data_sample <- data_sample %>%
-  mutate(correct = ifelse(LLM_result == class, TRUE, FALSE))
-
-# Calculate accuracy
-accuracy <- mean(data_sample$correct, na.rm = TRUE)
-accuracy
-
-write.csv(data_sample, "classification_results.csv", row.names = FALSE)
-cat("Results saved to classification_results.csv\n")
-```
-
-#### Parallel Processing Example
-
-In addition to looping through each row with the single-sequence generator, you can process the same dataset with the parallel generator; in our benchmarking on this sample, the batched run finishes in roughly 65% of the for-loop execution time.
-
-```r
-# 2. Create a reusable context
-ctx <- context_create(model, n_ctx = 1048, n_seq_max = 10, verbosity = 1)
-
-# 3. Prepare all prompts at once
-all_prompts <- character(nrow(data_sample))
-prompt_tokens <- vector("list", nrow(data_sample))  # optional: inspect tokenized prompts
-
-for (i in seq_len(nrow(data_sample))) {
+  # 3. Define the prompt
   messages <- list(
     list(role = "system", content = "You are a helpful assistant."),
     list(role = "user", content = paste0(
       "Classify this news article into exactly one category: World, Sports, Business, or Sci/Tech. Respond with only the category name.\n\n",
-      "Title: ", data_sample$title[i], "\n",
-      "Description: ", substr(data_sample$description[i], 1, 100), "\n\n",
+      "Title: ", ag_news_sample$title[i], "\n",
+      "Description: ", substr(ag_news_sample$description[i], 1, 100), "\n\n",
+      "Category:"
+    ))
+  )
+    
+  # 4. Apply chat template
+  formatted_prompt <- apply_chat_template(model, messages)
+    
+  # 5. Generate response
+  output_tokens <- generate(
+    ctx, formatted_prompt,
+    max_tokens = 5,
+    seed = 92092,
+    clean = TRUE # strip common chat-template control tokens from the generated text
+  )
+    
+  # Store the result
+  ag_news_sample$LLM_result[i] <- trimws(sub("\\.$", "", gsub("[\n<].*$", "", output_tokens)))
+
+}
+
+# Compare with true labels and calculate accuracy
+accuracy <- mean(ag_news_sample$LLM_result==ag_news_sample$class)
+print(accuracy)
+```
+
+#### Parallel Processing with `generate_parallel()`
+
+In addition to looping through each row with the single-sequence generator, you can process the same dataset with the parallel generator; in our benchmarking on this sample, the batched run finishes in roughly 65% of the for-loop execution time.
+
+```r
+# Create a reusable context
+ctx <- context_create(model, n_ctx = 1048, n_seq_max = 10)
+
+# Prepare all prompts at once
+all_prompts <- character(nrow(ag_news_sample))
+prompt_tokens <- vector("list", nrow(ag_news_sample))  # optional: inspect tokenized prompts
+
+for (i in 1:nrow(ag_news_sample)) {
+  messages <- list(
+    list(role = "system", content = "You are a helpful assistant."),
+    list(role = "user", content = paste0(
+      "Classify this news article into exactly one category: World, Sports, Business, or Sci/Tech. Respond with only the category name.\n\n",
+      "Title: ", ag_news_sample$title[i], "\n",
+      "Description: ", substr(ag_news_sample$description[i], 1, 100), "\n\n",
       "Category:"
     ))
   )
@@ -273,69 +240,41 @@ for (i in seq_len(nrow(data_sample))) {
   prompt_tokens[[i]] <- tokenize(model, formatted_prompt)
 }
 
-# Record start time for parallel processing
-parallel_start_time <- Sys.time()
-cat("Parallel processing started at:", format(parallel_start_time, "%Y-%m-%d %H:%M:%S"), "\n")
-
 # Process samples in parallel
-tryCatch({
-  results <- generate_parallel(
-    context = ctx,
-    prompts = all_prompts,
-    max_tokens = 5L,
-    seed = 1234L,
-    progress = TRUE,
-    clean = TRUE
-  )
+results <- generate_parallel(
+  context = ctx,
+  prompts = all_prompts,
+  max_tokens = 5,
+  seed = 92092,
+  progress = TRUE,
+  clean = TRUE
+)
 
-  parallel_end_time <- Sys.time()
-  cat("Parallel processing completed at:", format(parallel_end_time, "%Y-%m-%d %H:%M:%S"), "\n")
+ag_news_sample$LLM_result <- sapply(results, function(x) trimws(gsub("\\n.*$", "", x)))
 
-  parallel_duration <- parallel_end_time - parallel_start_time
-  cat("Parallel processing duration:", round(as.numeric(parallel_duration, units = "secs"), 2), "seconds\n")
-
-  data_sample$LLM_result <- sapply(results, function(x) trimws(gsub("\\n.*$", "", x)))
-  cat("Parallel processing completed successfully!\n")
-
-}, error = function(e) {
-  cat("Error during parallel processing:", e$message, "\n")
-  data_sample$LLM_result <- rep("ERROR", nrow(data_sample))
-})
-
-# Display final dataset
-print(data_sample)
-
-# Compare with true labels
-data_sample <- data_sample %>%
-  mutate(correct = ifelse(LLM_result == class, TRUE, FALSE))
-
-# Calculate accuracy
-accuracy <- mean(data_sample$correct, na.rm = TRUE)
-cat("Classification accuracy:", accuracy, "\n")
-
-write.csv(data_sample, "classification_results_parallel.csv", row.names = FALSE)
-cat("Results saved to classification_results_parallel.csv\n")
+# Compare with true labels and calculate accuracy
+accuracy <- mean(ag_news_sample$LLM_result==ag_news_sample$class)
+print(accuracy)
 ```
 
 ---
 
-
 ### Customization
 
-All generation functions (`quick_llama`, `generate`, `generate_parallel`) accept a wide range of parameters to control model behavior, performance, and output. The examples below reference `quick_llama()`.
+All generation functions (`quick_llama()`, `generate()`, and `generate_parallel()`) accept a wide range of parameters to control model behavior, performance, and output. 
 
-#### Temperature / Determinism
+#### Temperature
 
-These parameters control the creativity and randomness of the output.
+These parameters control the creativity of the output.
 
--   **`temperature`**: Controls randomness. Default is `0.0` (greedy/deterministic). Set to 0 for factual tasks. Higher values (e.g., `0.7`-`1.0`) make output more creative and diverse.
+-   **`temperature`**: Controls creativity. Default is `0.0`. Set to 0 for factual tasks. Higher values (e.g., `0.7`-`1.0`) make output more creative and diverse.
 -   **`top_k`**: Default is `40`. The model considers only the top `k` most likely tokens at each step. Higher values increase diversity.
 -   **`top_p`**: Default is `1.0` (disabled). Nucleus sampling threshold. Set to `0.9` to select from tokens whose cumulative probability exceeds 90%.
 -   **`repeat_last_n`**: Default is `0` (disabled). Number of recent tokens to consider for repetition penalty.
 -   **`penalty_repeat`**: Default is `1.0` (disabled). Set to values >1.0 (e.g., `1.1`) to discourage repetition.
 
 ```r
-# Deterministic response (default behavior)
+# Default behavior
 factual <- quick_llama("What is the capital of France?")
 
 # Creative response with higher temperature
@@ -350,14 +289,13 @@ no_repeat <- quick_llama("Tell me about AI",
 
 #### Model Download
 
-You can point the package at any GGUF model by URL, local path, or cached
-filename.
+You can point the package at any GGUF model by URL, local path, or cached filename.
 
 ```r
 # Download a different model from Hugging Face (cached automatically)
 response <- quick_llama(
   "Explain quantum physics in simple terms",
-  model = "Llama-3.2-3B-Instruct-Q5_K_M.gguf"
+  model = "https://huggingface.co/unsloth/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q2_K.gguf"
 )
 
 # Load a local model file you have already downloaded
@@ -367,9 +305,7 @@ response <- quick_llama("Explain quantum physics in simple terms", model = "/pat
 response <- quick_llama("Explain quantum physics in simple terms", model = "Llama-3.2")
 ```
 
-If you provide a name fragment instead of a full path/URL, the loader searches
-the cache first. A single match loads immediately; multiple matches are printed
-so you can choose interactively.
+If you provide a name fragment instead of a full path/URL, the loader searches the cache first. A single match loads immediately; multiple matches are printed so you can choose interactively.
 
 ```r
 # List cached models
@@ -404,7 +340,7 @@ This will remove all cached models and lock files, allowing fresh downloads.
 
 #### Private Hugging Face Models
 
-Some Hugging Face repositories (for example, Google-released or enterprise models) require an access token. Set the token once per session using `set_hf_token()` before calling `quick_llama()`, `model_load()`, or `download_model()`. The helper wires the token into the backend without printing it to the console.
+Some Hugging Face repositories require an access token. Set the token once per session using `set_hf_token()` before calling `quick_llama()`, `model_load()`, or `download_model()`. The helper wires the token into the backend without printing it to the console.
 
 ```r
 # Store the token for this session
@@ -449,7 +385,7 @@ response <- quick_llama("Let's have a long conversation about AI.", n_ctx = 4096
 
 If you have a compatible GPU (NVIDIA or Apple Metal), you can offload model layers to it for a significant speed increase (5-10x or more).
 
--   `n_gpu_layers = 0`: Use CPU only (the default).
+-   `n_gpu_layers = 0`: Use CPU only.
 -   `n_gpu_layers > 0`: Offloads a specific number of layers to the GPU. To offload all possible layers, set this to a very high number (e.g., `999`).
 
 ```r
@@ -459,7 +395,7 @@ quick_llama("Tell me a joke", n_gpu_layers = 999)
 
 #### All Other Parameters
 
-The `quick_llama()` function provides full control over the `llama.cpp` backend. Some other useful parameters include:
+The generation functions provide full control over the `llama.cpp` backend. Some other useful parameters include:
 
 -   **`system_prompt` (character)**: Sets the initial instruction for the model to define its role or persona (default: `"You are a helpful assistant."`).
 -   **`n_threads` (integer)**: The number of CPU threads to use for processing. Defaults to auto-detection for optimal performance.
@@ -479,4 +415,6 @@ response <- quick_llama(
 cat(response)
 ```
 
-For a complete list of all available parameters and their descriptions, run `?quick_llama` in your R console.
+### Report bugs
+Please report bugs to **xu2009 \[at\] purdue.edu** with your sample
+code and data file. Much appreciated!

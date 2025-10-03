@@ -118,7 +118,7 @@
         # We pass the library path, C++ side will reopen it to get handle
         .Call("c_localllm_api_init", full_lib_path)
         
-        packageStartupMessage("localLLM backend library loaded and API initialized successfully")
+        packageStartupMessage("localLLM backend library loaded successfully.")
       }, error = function(e) {
         packageStartupMessage("Warning: Backend library loaded but API initialization failed: ", e$message)
         packageStartupMessage("The library may still work, but some functions might not be available.")

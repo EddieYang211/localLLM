@@ -315,7 +315,7 @@ apply_chat_template <- function(model, messages, template = NULL, add_assistant 
 #' @param max_tokens Maximum number of tokens to generate (default: 100). Higher values produce longer responses
 #' @param top_k Top-k sampling parameter (default: 40). Limits vocabulary to k most likely tokens. Use 0 to disable
 #' @param top_p Top-p (nucleus) sampling parameter (default: 1.0). Cumulative probability threshold for token selection
-#' @param temperature Sampling temperature (default: 0.0). Set to 0 for deterministic greedy decoding. Higher values increase randomness
+#' @param temperature Sampling temperature (default: 0.0). Set to 0 for greedy decoding. Higher values increase creativity
 #' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable
 #' @param penalty_repeat Repetition penalty strength (default: 1.0). Values >1 discourage repetition. Set to 1.0 to disable
 #' @param seed Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output
@@ -328,7 +328,6 @@ apply_chat_template <- function(model, messages, template = NULL, add_assistant 
 #' model <- model_load("path/to/model.gguf")
 #' ctx <- context_create(model, n_ctx = 2048)
 #'
-#' # Generate deterministic response (default behavior)
 #' response <- generate(ctx, "Hello, how are you?", max_tokens = 50)
 #'
 #' # Creative writing with higher temperature
@@ -391,7 +390,7 @@ generate <- function(context, prompt, max_tokens = 100L, top_k = 40L, top_p = 1.
 #' @param max_tokens Maximum number of tokens to generate (default: 100)
 #' @param top_k Top-k sampling parameter (default: 40). Limits vocabulary to k most likely tokens
 #' @param top_p Top-p (nucleus) sampling parameter (default: 1.0). Cumulative probability threshold for token selection
-#' @param temperature Sampling temperature (default: 0.0). Set to 0 for deterministic greedy decoding. Higher values increase randomness
+#' @param temperature Sampling temperature (default: 0.0). Set to 0 for greedy decoding. Higher values increase creativity
 #' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable
 #' @param penalty_repeat Repetition penalty strength (default: 1.0). Values >1 discourage repetition. Set to 1.0 to disable
 #' @param seed Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output

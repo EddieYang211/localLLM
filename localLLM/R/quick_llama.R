@@ -15,7 +15,7 @@
 #' @param n_gpu_layers Number of GPU layers (default: auto-detect)
 #' @param n_ctx Context size (default: 2048)
 #' @param max_tokens Maximum tokens to generate (default: 100)
-#' @param temperature Sampling temperature (default: 0.0). Set to 0 for deterministic output. Higher values increase randomness
+#' @param temperature Sampling temperature (default: 0.0). Higher values increase creativity
 #' @param top_p Top-p sampling (default: 1.0). Set to 0.9 for nucleus sampling
 #' @param top_k Top-k sampling (default: 40). Limits vocabulary to k most likely tokens
 #' @param verbosity Backend logging verbosity (default: 1L). Higher values show more
