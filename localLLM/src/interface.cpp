@@ -94,7 +94,7 @@ SEXP r_model_load(SEXP model_path, SEXP n_gpu_layers, SEXP use_mmap, SEXP use_ml
     SEXP p = R_MakeExternalPtr(handle, R_NilValue, R_NilValue);
     PROTECT(p);
     Rf_setAttrib(p, R_ClassSymbol, Rf_mkString("localllm_model"));
-    R_RegisterCFinalizerEx(p, (R_CFinalizer_t)model_finalizer, TRUE);
+    R_RegisterCFinalizerEx(p, (R_CFinalizer_t)model_finalizer, static_cast<Rboolean>(TRUE));
     UNPROTECT(1);
     return p;
 }
@@ -117,7 +117,7 @@ SEXP r_model_load_safe(SEXP model_path, SEXP n_gpu_layers, SEXP use_mmap, SEXP u
     SEXP p = R_MakeExternalPtr(handle, R_NilValue, R_NilValue);
     PROTECT(p);
     Rf_setAttrib(p, R_ClassSymbol, Rf_mkString("localllm_model"));
-    R_RegisterCFinalizerEx(p, (R_CFinalizer_t)model_finalizer, TRUE);
+    R_RegisterCFinalizerEx(p, (R_CFinalizer_t)model_finalizer, static_cast<Rboolean>(TRUE));
     UNPROTECT(1);
     return p;
 }
@@ -168,7 +168,7 @@ SEXP r_context_create(SEXP model_ptr, SEXP n_ctx, SEXP n_threads, SEXP n_seq_max
     SEXP p = R_MakeExternalPtr(handle, R_NilValue, R_NilValue);
     PROTECT(p);
     Rf_setAttrib(p, R_ClassSymbol, Rf_mkString("localllm_context"));
-    R_RegisterCFinalizerEx(p, (R_CFinalizer_t)context_finalizer, TRUE);
+    R_RegisterCFinalizerEx(p, (R_CFinalizer_t)context_finalizer, static_cast<Rboolean>(TRUE));
     UNPROTECT(1);
     return p;
 }

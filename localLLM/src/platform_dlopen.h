@@ -6,6 +6,7 @@
 
 #ifdef _WIN32
     #include <windows.h>
+    #include <cstdio>
     typedef HMODULE platform_dlhandle_t;
     #define PLATFORM_RTLD_DEFAULT NULL
     #define PLATFORM_RTLD_LAZY 0
