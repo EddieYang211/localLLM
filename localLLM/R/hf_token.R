@@ -12,7 +12,7 @@
 #' @param persist Logical flag controlling whether to persist the token to a
 #'   startup file. Defaults to `FALSE`.
 #' @param renviron_path Optional path to the `.Renviron` file to update when
-#'   `persist = TRUE`. Defaults to `"~/.Renviron"`.
+#'   `persist = TRUE`. Must be supplied explicitly when persisting.
 #'
 #' @return Invisibly returns the currently active token value.
 #' @examples
@@ -21,7 +21,7 @@
 #' }
 #'
 #' @export
-set_hf_token <- function(token, persist = FALSE, renviron_path = "~/.Renviron") {
+set_hf_token <- function(token, persist = FALSE, renviron_path = NULL) {
   if (missing(token) || is.null(token) || length(token) != 1L || !nzchar(token)) {
     stop("`token` must be a non-empty character scalar", call. = FALSE)
   }
@@ -32,6 +32,9 @@ set_hf_token <- function(token, persist = FALSE, renviron_path = "~/.Renviron") 
   Sys.setenv(HF_TOKEN = token)
 
   if (isTRUE(persist)) {
+    if (is.null(renviron_path)) {
+      stop("`renviron_path` must be supplied when `persist = TRUE` to avoid writing to the home directory by default.", call. = FALSE)
+    }
     renviron_path <- path.expand(renviron_path)
     lines <- character()
     if (file.exists(renviron_path)) {

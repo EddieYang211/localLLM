@@ -1,9 +1,10 @@
 # --- FILE: localLLM/R/api.R ---
 
 #' Initialize localLLM backend
-#' 
+#'
 #' Initialize the backend library. This should be called once before using other functions.
-#' 
+#'
+#' @return No return value, called for side effects (initializes backend).
 #' @export
 backend_init <- function() {
   .ensure_backend_loaded()
@@ -11,10 +12,11 @@ backend_init <- function() {
 }
 
 #' Free localLLM backend
-#' 
+#'
 #' Clean up backend resources. Usually called automatically.
-#' 
-#' @export  
+#'
+#' @return No return value, called for side effects (frees backend resources).
+#' @export
 backend_free <- function() {
   if (.is_backend_loaded()) {
     invisible(.Call("c_r_backend_free"))
@@ -69,7 +71,7 @@ backend_free <- function() {
 #' 
 #' # Download to custom cache directory
 #' model <- model_load(hf_path, 
-#'                     cache_dir = "~/my_models")
+#'                     cache_dir = file.path(tempdir(), "my_models"))
 #' 
 #' # Force fresh download (ignore cache)
 #' model <- model_load(hf_path, 
@@ -456,7 +458,10 @@ tokenize_test <- function(model) {
 #' @examples
 #' \dontrun{
 #' # Download to specific location
-#' download_model("https://example.com/model.gguf", "~/models/my_model.gguf")
+#' download_model(
+#'   "https://example.com/model.gguf",
+#'   file.path(tempdir(), "my_model.gguf")
+#' )
 #' 
 #' # Download to cache (path will be returned)
 #' cached_path <- download_model("https://example.com/model.gguf")

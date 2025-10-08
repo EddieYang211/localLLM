@@ -6,6 +6,9 @@
 \usage{
 quick_llama_reset()
 }
+\value{
+No return value, called for side effects (resets cached state).
+}
 \description{
 Clears cached model and context objects, forcing fresh initialization
 on the next call to quick_llama().

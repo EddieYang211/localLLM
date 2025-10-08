@@ -6,6 +6,9 @@
 \usage{
 backend_init()
 }
+\value{
+No return value, called for side effects (initializes backend).
+}
 \description{
 Initialize the backend library. This should be called once before using other functions.
 }

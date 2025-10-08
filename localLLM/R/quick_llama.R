@@ -198,6 +198,7 @@ quick_llama <- function(prompt,
 #' Clears cached model and context objects, forcing fresh initialization
 #' on the next call to quick_llama().
 #'
+#' @return No return value, called for side effects (resets cached state).
 #' @export
 quick_llama_reset <- function() {
   if (exists("model", envir = .quick_llama_env)) {

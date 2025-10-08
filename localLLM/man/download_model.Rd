@@ -35,7 +35,10 @@ Download a model manually
 \examples{
 \dontrun{
 # Download to specific location
-download_model("https://example.com/model.gguf", "~/models/my_model.gguf")
+download_model(
+  "https://example.com/model.gguf",
+  file.path(tempdir(), "my_model.gguf")
+)
 
 # Download to cache (path will be returned)
 cached_path <- download_model("https://example.com/model.gguf")

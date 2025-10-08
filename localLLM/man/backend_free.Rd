@@ -6,6 +6,9 @@
 \usage{
 backend_free()
 }
+\value{
+No return value, called for side effects (frees backend resources).
+}
 \description{
 Clean up backend resources. Usually called automatically.
 }

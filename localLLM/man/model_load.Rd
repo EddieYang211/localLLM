@@ -78,7 +78,7 @@ model <- model_load("/path/to/model.gguf", n_gpu_layers = 10)
 
 # Download to custom cache directory
 model <- model_load(hf_path, 
-                    cache_dir = "~/my_models")
+                    cache_dir = file.path(tempdir(), "my_models"))
 
 # Force fresh download (ignore cache)
 model <- model_load(hf_path, 

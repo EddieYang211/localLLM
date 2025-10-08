@@ -4,7 +4,7 @@
 \alias{set_hf_token}
 \title{Configure Hugging Face access token}
 \usage{
-set_hf_token(token, persist = FALSE, renviron_path = "~/.Renviron")
+set_hf_token(token, persist = FALSE, renviron_path = NULL)
 }
 \arguments{
 \item{token}{Character scalar. Your Hugging Face access token, typically
@@ -14,7 +14,7 @@ starting with `hf_`.}
 startup file. Defaults to `FALSE`.}
 
 \item{renviron_path}{Optional path to the `.Renviron` file to update when
-`persist = TRUE`. Defaults to `"~/.Renviron"`.}
+`persist = TRUE`. Must be supplied explicitly when persisting.}
 }
 \value{
 Invisibly returns the currently active token value.
