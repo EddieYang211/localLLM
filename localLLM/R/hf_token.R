@@ -18,6 +18,8 @@
 #' @examples
 #' \dontrun{
 #' set_hf_token("hf_xxx")
+#' tmp_env <- file.path(tempdir(), ".Renviron_localLLM")
+#' set_hf_token("hf_xxx", persist = TRUE, renviron_path = tmp_env)
 #' }
 #'
 #' @export

@@ -338,28 +338,36 @@ if (nrow(cached) > 0) {
 If you encounter an error message like "Another download in progress" or "Download timeout: another process seems to be stuck", it means a previous download was interrupted and left a lock file. To resolve this, clear the cache directory manually:
 
 ```r
-# macOS default path
-unlink("~/Library/Caches/org.R-project.R/R/localLLM/models", recursive = TRUE, force = TRUE)
-
-# Linux default path
-unlink("~/.cache/R/localLLM/models", recursive = TRUE, force = TRUE)
-
-# Windows default path
-unlink(file.path(Sys.getenv("LOCALAPPDATA"), "R", "cache", "R", "localLLM", "models"), recursive = TRUE, force = TRUE)
+cache_root <- tools::R_user_dir("localLLM", which = "cache")
+models_dir <- file.path(cache_root, "models")
+unlink(models_dir, recursive = TRUE, force = TRUE)
 ```
 
 This will remove all cached models and lock files, allowing fresh downloads.
 
 #### Private Hugging Face Models
 
-Some Hugging Face repositories require an access token. Set the token once per session using `set_hf_token()` before calling `quick_llama()`, `model_load()`, or `download_model()`. The helper wires the token into the backend without printing it to the console.
+Some Hugging Face repositories require an access token. Set the token once per session using `set_hf_token()` before calling `quick_llama()`, `model_load()`, or `download_model()`. The helper wires the token into the backend without printing it to the console. If you want the token to persist across sessions you must supply an explicit file path with `renviron_path`; by default nothing is written to the home directory.
 
 ```r
 # Store the token for this session
 set_hf_token('hf_your_token_here')
 
-# Optionally persist it to ~/.Renviron (use with care)
-# set_hf_token('hf_your_token_here', persist = TRUE)
+# Optionally persist it to a specific file that you control
+# tmp_env <- file.path(tempdir(), ".Renviron_localLLM")
+# set_hf_token(
+#   'hf_your_token_here',
+#   persist = TRUE,
+#   renviron_path = tmp_env
+# )
+#
+# For a persistent location, point `renviron_path` to a file you manage, e.g.:
+# secure_env <- file.path('/path/to/secure/location', '.Renviron_localLLM')
+# set_hf_token(
+#   'hf_your_token_here',
+#   persist = TRUE,
+#   renviron_path = secure_env
+# )
 
 # Now you can load gated models by URL
 model <- model_load('https://huggingface.co/google/gated-model/resolve/main/model.gguf')
