@@ -10,7 +10,7 @@ Authors@R: c(
 Description: The 'localLLM' package provides R bindings to the 'llama.cpp' library for running large language models.
     The package uses a lightweight architecture where the C++ backend library is downloaded
     at runtime rather than bundled with the package. 
-    Package Features include text generation, reproducible generation, and parallel inference.
+    Package features include text generation, reproducible generation, and parallel inference.
 License: MIT + file LICENSE
 Depends: R (>= 3.6.0)
 Imports:
