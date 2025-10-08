@@ -1,8 +1,18 @@
+## Resubmission
+
+This is a resubmission. In this version I have:
+
+* Added single quotes around package/software names in DESCRIPTION (Title and Description fields)
+* Added \value documentation to all exported functions (backend_init, backend_free, quick_llama_reset)
+* Updated examples to use tempdir() instead of writing to user home directories
+
+All three issues raised in the previous CRAN review have been addressed.
+
 ## R CMD check results
 
 0 errors | 0 warnings | 2 notes
 
-* This is a new release.
+* NOTE: New submission (standard for first-time package)
 * NOTE: unable to verify current time (system-specific, not a package issue)
 
 ## Test environments
