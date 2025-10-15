@@ -1,7 +1,7 @@
 # localLLM
 
 [![R-CMD-check](https://github.com/EddieYang211/localLLM/workflows/R-CMD-check/badge.svg)](https://github.com/EddieYang211/localLLM/actions)
-[![CRAN status](https://www.r-pkg.org/badges/version/localLLM)](https://CRAN.R-project.org/package/localLLM)
+[![CRAN status](https://www.r-pkg.org/badges/version/localLLM)](https://cran.r-project.org/package=localLLM)
 
 **localLLM** provides an easy-to-use interface to run large language models (LLMs) directly in R. It uses the performant `llama.cpp` library as the backend and allows you to generate text and analyze data with LLM. Everything runs locally on your own machine, completely free. Furthermore, it ensures reproducibility by default, making it a reliable tool for scientific research.
 
