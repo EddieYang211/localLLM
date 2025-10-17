@@ -1,7 +1,7 @@
 Package: localLLM
 Type: Package
 Title: Running Local LLMs with 'llama.cpp' Backend
-Version: 1.0.1
+Version: 1.0.1.1
 Date: 2025-10-08
 Authors@R: c(
     person("Eddie", "Yang", role = "aut", comment = c(ORCID = "0000-0002-3696-3226")), 
