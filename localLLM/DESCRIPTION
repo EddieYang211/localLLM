@@ -13,6 +13,7 @@ Description: The 'localLLM' package provides R bindings to the 'llama.cpp' libra
     Package features include text generation, reproducible generation, and parallel inference.
 License: MIT + file LICENSE
 Depends: R (>= 3.6.0)
+LinkingTo: Rcpp
 Imports:
     Rcpp (>= 1.0.14),
     tools,
