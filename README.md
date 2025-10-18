@@ -3,7 +3,7 @@
 [![R-CMD-check](https://github.com/EddieYang211/localLLM/workflows/R-CMD-check/badge.svg)](https://github.com/EddieYang211/localLLM/actions)
 [![CRAN status](https://www.r-pkg.org/badges/version/localLLM)](https://cran.r-project.org/package=localLLM)
 
-**localLLM** provides an easy-to-use interface to run large language models (LLMs) directly in R. It uses the performant `llama.cpp` library as the backend and allows you to generate text and analyze data with LLM. Everything runs locally on your own machine, completely free. Furthermore, it ensures reproducibility by default, making it a reliable tool for scientific research.
+**localLLM** provides an easy-to-use interface to run large language models (LLMs) directly in R. It uses the performant `llama.cpp` library as the backend and allows you to generate text and analyze data with LLM. Everything runs locally on your own machine, completely free. It also ensures reproducibility by default. Our goal is to develop it into a reliable toolkit for scientific research. 
 
 ---
 
@@ -58,6 +58,14 @@ response2 <- quick_llama('Classify the sentiment of the following tweet into one
 
 print(response1==response2)
 ```
+
+---
+
+### Roadmap
+The following is a list of functionalities we plan to add in the near future:
+*   Explore: generate annotations from a list of LLMs and auto-compute confusion matrix, intercoder reliability, etc.
+*   Validate: generate annotation valiation result given data and ground-truths.
+*   Auto-documentation: automatically capture and document code execution along with metadata (date, software & hardware version etc.) for reproducible analysis.
 
 ---
 
