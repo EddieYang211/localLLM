@@ -17,6 +17,9 @@
 
 # Output files from R CMD check
 /*.Rcheck/
+**/..Rcheck/
+check_output*.log
+*.Rcheck/
 
 # RStudio files
 .Rproj.user/
@@ -66,3 +69,4 @@ classification_results*.csv
 src/*.o
 src/*.so
 src/*.dll
+**/symbols.rds
