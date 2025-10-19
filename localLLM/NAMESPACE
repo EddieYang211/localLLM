@@ -30,6 +30,8 @@ export(download_model)
 export(get_model_cache_dir)
 export(list_cached_models)
 
+export(list_ollama_models)
+
 # Export high-level convenience functions
 export(quick_llama)
 export(quick_llama_reset)

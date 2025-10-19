@@ -783,6 +783,51 @@ list_cached_models <- function(cache_dir = NULL) {
     return(cache_path)
   }
   
+  # Resolve Ollama-managed models
+  if (.is_ollama_reference(model_path)) {
+    models_df <- list_ollama_models()
+
+    if (nrow(models_df) == 0L) {
+      stop("No Ollama GGUF models were discovered. Use install_localLLM() or provide a direct path.", call. = FALSE)
+    }
+
+    query <- sub("(?i)^ollama:?", "", model_path, perl = TRUE)
+    query <- trimws(query)
+    selection_idx <- NULL
+
+    if (nzchar(query)) {
+      matches_idx <- .match_ollama_reference_df(models_df, query)
+      if (length(matches_idx) == 0L) {
+        available_names <- models_df$name
+        preview <- if (length(available_names) > 6L) c(available_names[seq_len(6L)], "...") else available_names
+        stop(
+          sprintf("No Ollama GGUF model matched '%s'. Known models: %s", query, paste(preview, collapse = ", ")),
+          call. = FALSE
+        )
+      } else if (length(matches_idx) == 1L) {
+        selection_idx <- matches_idx[1L]
+      } else {
+        message(sprintf("Multiple Ollama models matched '%s':", query))
+        selection_idx <- .select_ollama_model_df(models_df[matches_idx, , drop = FALSE])
+      }
+    } else {
+      if (nrow(models_df) == 1L) {
+        selection_idx <- 1L
+      } else {
+        message("Detected the following Ollama GGUF models:")
+        selection_idx <- .select_ollama_model_df(models_df)
+      }
+    }
+
+    if (is.null(selection_idx)) {
+      stop("Model selection was cancelled. Provide a more specific reference.", call. = FALSE)
+    }
+
+    selected_model <- models_df[selection_idx, , drop = FALSE]
+    message("Using Ollama model: ", selected_model$name)
+    return(selected_model$path)
+  }
+
   # Attempt to resolve by cached model name
   cached_path <- .resolve_model_name(model_path, cache_dir)
   if (!is.null(cached_path)) {

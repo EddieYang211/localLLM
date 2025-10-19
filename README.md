@@ -71,22 +71,72 @@ The following is a list of functionalities we plan to add in the near future:
 
 ### About GGUF Models
 
-The `localLLM` backend is powered by `llama.cpp` (commit `b5421`), which only supports models stored in the GGUF format. In practice this means every model you load through
-`model_load()` or `quick_llama()` must be a `.gguf` file.
+The `localLLM` backend is powered by `llama.cpp` (commit `b5421`), which only supports models stored in the GGUF format. In practice this means every model you load through `model_load()` or `quick_llama()` must be a `.gguf` file.
 
-**Finding GGUF models on Hugging Face**
+#### 1. Finding GGUF Models on Hugging Face
 
 1. Open [huggingface.co](https://huggingface.co).
 2. In the search bar type `gguf` and press Enter.
-3. Click **“See all model results for "gguf"”** to view the full catalogue. As nof 2025-10-02 there are 128,493 GGUF models available.
+3. Click **"See all model results for "gguf""** to view the full catalogue. As of 2025-10-02 there are 128,493 GGUF models available.
 4. To narrow down to specific families - such as Gemma or Llama - include the model name together with `gguf` in the search query (e.g. `gemma gguf`).
 
-`quick_llama()` defaults to `Llama-3.2-3B-Instruct-Q5_K_M.gguf`, a GGUF version of the Llama-3.2-3B model. You can swap in any other GGUF model by passing adifferent URL or local path; for example, to download and local another model from Hugging Face, simply locate the model url and do:
+`quick_llama()` defaults to `Llama-3.2-3B-Instruct-Q5_K_M.gguf`, a GGUF version of the Llama-3.2-3B model. You can swap in any other GGUF model by passing a different URL or local path; for example, to download and load another model from Hugging Face, simply locate the model URL and do:
 
 ```r
 model_load(
-  model_path="https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf")
+  model_path = "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf"
+)
 ```
+
+#### 2. Re-using Existing Ollama Models
+
+If you already use [Ollama](https://ollama.ai) and have downloaded GGUF weights, `localLLM` can discover and load them directly without re-downloading. This saves disk space and bandwidth by reusing models you've already installed.
+
+**Listing Available Ollama Models**
+
+Use `list_ollama_models()` to see all GGUF models managed by Ollama:
+
+```r
+# Returns a data.frame with model information
+models <- list_ollama_models()
+print(models)
+```
+
+**Loading Ollama Models**
+
+You can reference Ollama models in several ways:
+
+```r
+# By name
+model <- model_load("ollama:llama3.2")
+
+# By tag
+model <- model_load("ollama:deepseek-r1:8b")
+
+# By SHA256 prefix
+model <- model_load("ollama:6340dc32")
+
+# Generic reference (lists all models and prompts for selection)
+model <- model_load("ollama")
+
+# Use with quick_llama
+response <- quick_llama("Say hello!", model_path = "ollama:llama3.2")
+```
+
+**Ollama Reference Trigger Rules**
+
+The `model_path` parameter triggers Ollama model discovery when it matches specific patterns:
+
+| Input | Triggers Ollama | Description |
+|-------|----------------|-------------|
+| `"ollama"` | ✅ | Exact match (case-insensitive) |
+| `"Ollama"` | ✅ | Case-insensitive |
+| `" ollama "` | ✅ | Whitespace is trimmed |
+| `"ollama:llama3"` | ✅ | Starts with `ollama:` |
+| `"ollama:deepseek-r1:8b"` | ✅ | Full model name with tag |
+| `"ollama:6340dc32"` | ✅ | SHA256 prefix (minimum 8 chars recommended) |
+| `"myollama"` | ❌ | Not exact match, doesn't start with `ollama:` |
+| `"ollama.gguf"` | ❌ | Treated as filename, not Ollama reference |
 
 ---
 
