@@ -1,7 +1,7 @@
 Package: localLLM
 Type: Package
 Title: Running Local LLMs with 'llama.cpp' Backend
-Version: 1.0.1
+Version: 1.0.1.1
 Date: 2025-10-08
 Authors@R: c(
     person("Eddie", "Yang", role = "aut", comment = c(ORCID = "0000-0002-3696-3226")), 
@@ -13,6 +13,7 @@ Description: The 'localLLM' package provides R bindings to the 'llama.cpp' libra
     Package features include text generation, reproducible generation, and parallel inference.
 License: MIT + file LICENSE
 Depends: R (>= 3.6.0)
+LinkingTo: Rcpp
 Imports:
     Rcpp (>= 1.0.14),
     tools,

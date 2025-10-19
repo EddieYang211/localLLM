@@ -229,7 +229,7 @@ SEXP r_apply_chat_template(SEXP model_ptr, SEXP tmpl, SEXP chat_messages, SEXP a
     std::vector<std::string> roles, contents;
     roles.reserve(chat_messages_list.size());
     contents.reserve(chat_messages_list.size());
-    for(size_t i = 0; i < chat_messages_list.size(); ++i) {
+    for(R_xlen_t i = 0; i < chat_messages_list.size(); ++i) {
         List msg = chat_messages_list[i];
         roles.push_back(as<std::string>(msg["role"]));
         contents.push_back(as<std::string>(msg["content"]));
