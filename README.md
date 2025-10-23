@@ -2,6 +2,9 @@
 
 [![R-CMD-check](https://github.com/EddieYang211/localLLM/workflows/R-CMD-check/badge.svg)](https://github.com/EddieYang211/localLLM/actions)
 [![CRAN status](https://www.r-pkg.org/badges/version/localLLM)](https://cran.r-project.org/package=localLLM)
+[![R Package](https://img.shields.io/badge/R-package-blue.svg)](https://www.r-project.org/)
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![](https://cranlogs.r-pkg.org/badges/localLLM)](https://cran.r-project.org/package=localLLM)
 
 **localLLM** provides an easy-to-use interface to run large language models (LLMs) directly in R. It uses the performant `llama.cpp` library as the backend and allows you to generate text and analyze data with LLM. Everything runs locally on your own machine, completely free. It also ensures reproducibility by default. Our goal is to develop it into a reliable toolkit for scientific research. 
 
@@ -88,7 +91,7 @@ model_load(
 )
 ```
 
-#### 2. Re-using Existing Ollama Models
+#### 2. Re-using Existing Ollama Models (Available in the next CRAN release)
 
 If you already use [Ollama](https://ollama.ai) and have downloaded GGUF weights, `localLLM` can discover and load them directly without re-downloading. This saves disk space and bandwidth by reusing models you've already installed.
 
