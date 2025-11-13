@@ -64,7 +64,11 @@ explore <- function(models,
   sink <- .validate_sink(sink)
   specs <- .normalise_model_specs(models, instruction)
 
-  .ensure_backend_loaded()
+  # Only load backend if at least one model needs it (i.e., doesn't use predictor)
+  needs_backend <- any(vapply(specs, function(s) !is.function(s$predictor), logical(1)))
+  if (needs_backend) {
+    .ensure_backend_loaded()
+  }
 
   spec_summaries <- lapply(specs, .explore_spec_summary)
   .document_record_event("explore_start", list(
