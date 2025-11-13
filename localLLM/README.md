@@ -44,19 +44,6 @@ cat(response) # Output: The sentiment of this tweet is Positive.
 *   If you provide a **single character string**, it performs a single generation.
 *   If you provide a **vector of character strings**, it automatically switches to parallel generation mode, processing all of them at once.
 
-### Prompt Builder Options for `explore()`
-
-When orchestrating multi-model annotations, `prompt_builder` 支持三种形态：
-
-1. **模板 list**：提供 `annotation_task`、`coding_rules`、`examples`、`target_text`（或 `data` + `text_col`）以及可选的 `sample_id`、`output_format`，函数会按内建模板自动拼装 prompt。
-2. **字符向量**：如果数据集中已经包含最终 prompt，只需把该向量直接传给 `prompt_builder`，`sample_id` 会自动设为 `1..n`。
-3. **自定义函数**：仍可使用 `function(spec) {...}` 完全掌控 prompt 生成逻辑（返回字符向量或含 `prompt` 列的数据框）。
-
-单个模型也可以通过 `spec$prompt_builder` 覆盖全局设置，灵活结合三种方式。
-
-
----
-
 ### Reproducibility
 
 You can check the reproducibility of the result by running the same query multiple times. By default , all generation functions in **localLLM** (`quick_llama()`, `generate()`, and `generate_parallel()`) use deterministic greedy decoding with temperature = 0. Even when temperature > 0, results are reproducibile.
@@ -337,6 +324,90 @@ ag_news_sample$LLM_result <- sapply(results, function(x) trimws(gsub("\\n.*$", "
 # Compare with true labels and calculate accuracy
 accuracy <- mean(ag_news_sample$LLM_result==ag_news_sample$class)
 print(accuracy)
+```
+
+### Compare Multiple Models
+
+When you need to benchmark several LLMs side-by-side, `explore()` manages the
+entire batch run and returns both a long table of annotations and a wide matrix
+of per-model predictions. The new `validate()` helper then combines
+`compute_confusion_matrices()` and `intercoder_reliability()` so you can inspect
+gold-vs-model confusion tables and agreement scores in one shot.
+
+```r
+models <- list(
+  list(id = "llama", model = "path/or/url/to/llama.gguf"),
+  list(id = "qwen",  model = "path/or/url/to/qwen.gguf",
+       generation = list(temperature = 0.2, max_tokens = 64))
+)
+
+prompt_builder <- function(spec) {
+  data.frame(
+    sample_id = my_dataset$doc_id,
+    prompt = sprintf("[%s]\n\n%s", spec$id, my_dataset$text),
+    truth = my_dataset$label,               # optional gold labels
+    stringsAsFactors = FALSE
+  )
+}
+
+annotations <- explore(
+  models = models,
+  prompt_builder = prompt_builder,
+  batch_size = 16,
+  keep_prompts = FALSE
+)
+
+report <- validate(annotations, gold = my_dataset$label)
+confusion_vs_gold <- report$confusion$vs_gold$llama
+pairwise_tables <- report$confusion$pairwise
+agreement <- report$reliability$cohen
+```
+
+For very large datasets you can stream each per-model chunk directly to disk by
+setting `sink = annotation_sink_csv("annotations.csv")`, which keeps memory
+use flat.
+
+#### Prompt Builder Options
+
+`prompt_builder` accepts three flexible inputs:
+
+1. **Template list** – provide keys such as `annotation_task`, `coding_rules`,
+   `examples`, `target_text`, optional `sample_id`, and `output_format`, or pass
+   `data`/`text_col`/`id_col`. The helper renders prompts using the default
+   structure:
+
+   ```
+   ## Annotation Task: …
+   ## Coding Rules: …
+   ## Examples: …
+   ## Target Text: {{target-text}}
+   ## Output Format: {"answer": "Your choice here"}
+   Remember … Respond only with a valid JSON object and nothing else.
+   ```
+
+2. **Character vector** – if you already have fully formatted prompts, pass the
+   vector directly (sample IDs are auto-generated).
+3. **Custom function** – return a character vector or a data frame with
+   `sample_id`/`prompt` (and optionally `truth`) columns for maximum control.
+
+Each model entry may also override `prompt_builder`, enabling different
+templating strategies per model.
+
+### Automatic Documentation
+
+Use `document_start()`/`document_end()` to capture everything that happens between the two calls. The log records timestamps, model metadata (paths, decoding parameters, etc.), and summaries of helpers such as `quick_llama()` or `explore()`.
+
+```r
+log_path <- file.path(tempdir(), "analysis-log.txt")
+
+document_start(log_path, metadata = list(project = "ag_news_demo"))
+
+result <- explore(models = models, prompt_builder = prompt_builder)
+response <- quick_llama("Summarise the latest result.")
+
+document_end()
+
+cat(readLines(log_path), sep = "\n")
 ```
 
 ---
