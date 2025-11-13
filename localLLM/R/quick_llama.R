@@ -189,6 +189,26 @@ quick_llama <- function(prompt,
       result <- lapply(result, .clean_output)
     }
   }
+
+  model_ref <- if (is.character(model) && length(model) == 1) model else "<object>"
+  .document_record_event("quick_llama", list(
+    model = model_ref,
+    prompt_count = length(prompt),
+    n_threads = n_threads,
+    n_gpu_layers = n_gpu_layers,
+    n_ctx = n_ctx,
+    max_tokens = max_tokens,
+    temperature = temperature,
+    top_k = top_k,
+    top_p = top_p,
+    repeat_last_n = repeat_last_n,
+    penalty_repeat = penalty_repeat,
+    min_p = min_p,
+    seed = seed,
+    auto_format = isTRUE(auto_format),
+    clean = isTRUE(clean),
+    stream = isTRUE(stream)
+  ))
   
   result
 }

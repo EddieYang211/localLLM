@@ -44,6 +44,17 @@ cat(response) # Output: The sentiment of this tweet is Positive.
 *   If you provide a **single character string**, it performs a single generation.
 *   If you provide a **vector of character strings**, it automatically switches to parallel generation mode, processing all of them at once.
 
+### Prompt Builder Options for `explore()`
+
+When orchestrating multi-model annotations, `prompt_builder` 支持三种形态：
+
+1. **模板 list**：提供 `annotation_task`、`coding_rules`、`examples`、`target_text`（或 `data` + `text_col`）以及可选的 `sample_id`、`output_format`，函数会按内建模板自动拼装 prompt。
+2. **字符向量**：如果数据集中已经包含最终 prompt，只需把该向量直接传给 `prompt_builder`，`sample_id` 会自动设为 `1..n`。
+3. **自定义函数**：仍可使用 `function(spec) {...}` 完全掌控 prompt 生成逻辑（返回字符向量或含 `prompt` 列的数据框）。
+
+单个模型也可以通过 `spec$prompt_builder` 覆盖全局设置，灵活结合三种方式。
+
+
 ---
 
 ### Reproducibility
@@ -68,7 +79,7 @@ print(response1==response2)
 The following is a list of functionalities we plan to add in the near future:
 *   Explore: generate annotations from a list of LLMs and auto-compute confusion matrix, intercoder reliability, etc.
 *   Validate: generate annotation valiation result given data and ground-truths.
-*   Auto-documentation: automatically capture and document code execution along with metadata (date, software & hardware version etc.) for reproducible analysis.
+*   Auto-documentation: ✅ shipped in this release via `document_start()` / `document_end()`.
 
 ---
 

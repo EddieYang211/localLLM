@@ -103,13 +103,28 @@ model_load <- function(model_path, cache_dir = NULL, n_gpu_layers = 0L, use_mmap
     .check_model_memory_requirements(resolved_path)
   }
   
-  .Call("c_r_model_load_safe", 
-        as.character(resolved_path),
-        as.integer(n_gpu_layers), 
-        as.logical(use_mmap),
-        as.logical(use_mlock),
-        as.logical(check_memory),
-        as.integer(verbosity))
+  model_ptr <- .Call("c_r_model_load_safe", 
+                     as.character(resolved_path),
+                     as.integer(n_gpu_layers), 
+                     as.logical(use_mmap),
+                     as.logical(use_mlock),
+                     as.logical(check_memory),
+                     as.integer(verbosity))
+
+  .document_record_event("model_load", list(
+    resolved_path = resolved_path,
+    cache_dir = cache_dir %||% NA_character_,
+    n_gpu_layers = n_gpu_layers,
+    use_mmap = isTRUE(use_mmap),
+    use_mlock = isTRUE(use_mlock),
+    force_redownload = isTRUE(force_redownload),
+    verify_integrity = isTRUE(verify_integrity),
+    check_memory = isTRUE(check_memory),
+    show_progress = isTRUE(show_progress),
+    verbosity = verbosity
+  ))
+
+  model_ptr
 }
 
 #' Create Inference Context for Text Generation
