@@ -64,9 +64,9 @@ print(response1==response2)
 
 ### Roadmap
 The following is a list of functionalities we plan to add in the near future:
-*   Explore: generate annotations from a list of LLMs and auto-compute confusion matrix, intercoder reliability, etc.
-*   Validate: generate annotation valiation result given data and ground-truths.
-*   Auto-documentation: ✅ shipped in this release via `document_start()` / `document_end()`.
+*   Explore ✅: generate annotations from a list of LLMs and auto-compute confusion matrix, intercoder reliability, etc.
+*   Validate ✅: generate annotation valiation result given data and ground-truths.
+*   Auto-documentation ✅: automatically capture and document code execution along with metadata (date, software & hardware version etc.) for reproducible analysis.
 
 ---
 
@@ -89,7 +89,7 @@ model_load(
 )
 ```
 
-#### 2. Re-using Existing Ollama Models (Available in the next CRAN release)
+#### 2. Re-using Existing Ollama Models (*Available in the next CRAN release*)
 
 If you already use [Ollama](https://ollama.ai) and have downloaded GGUF weights, `localLLM` can discover and load them directly without re-downloading. This saves disk space and bandwidth by reusing models you've already installed.
 
@@ -326,7 +326,9 @@ accuracy <- mean(ag_news_sample$LLM_result==ag_news_sample$class)
 print(accuracy)
 ```
 
-### Compare Multiple Models
+---
+
+### Compare Multiple Models (*Available in the next CRAN release*)
 
 When you need to benchmark several LLMs side-by-side, `explore()` manages the
 entire batch run and returns both a long table of annotations and a wide matrix
@@ -392,6 +394,8 @@ use flat.
 
 Each model entry may also override `prompt_builder`, enabling different
 templating strategies per model.
+
+---
 
 ### Automatic Documentation
 
