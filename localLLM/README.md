@@ -336,33 +336,85 @@ of per-model predictions. The new `validate()` helper then combines
 `compute_confusion_matrices()` and `intercoder_reliability()` so you can inspect
 gold-vs-model confusion tables and agreement scores in one shot.
 
+The example below demonstrates comparing three LLMs on a news classification task. Note that `Llama-3.2-3B-Instruct-Q5_K_M.gguf` is the package default model (automatically cached by `quick_llama()`), while the other two models need to be downloaded separately using `model_load()` with their URLs or Ollama references (see model download sections above). This example uses the **template list** format for `prompt_builder` to create structured, reproducible prompts (see Prompt Builder Options below for alternative formats).
+
 ```r
+# Load sample dataset
+data("ag_news_sample", package = "localLLM")
+
+# Define three models for comparison
 models <- list(
-  list(id = "llama", model = "path/or/url/to/llama.gguf"),
-  list(id = "qwen",  model = "path/or/url/to/qwen.gguf",
-       generation = list(temperature = 0.2, max_tokens = 64))
+  list(
+    id = "llama32",
+    model = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",  # Package default (auto-cached)
+    n_gpu_layers = 999,
+    generation = list(max_tokens = 15, seed = 92092)
+  ),
+  list(
+    id = "deepseek",
+    model = "ollama:deepseek-r1:8b",  # Requires Ollama installation
+    n_gpu_layers = 999,
+    generation = list(max_tokens = 15, seed = 92092)
+  ),
+  list(
+    id = "gemma12b",
+    model = "gemma-3-12b-it-q4_0.gguf",  # Requires download from HuggingFace
+    n_gpu_layers = 999,
+    generation = list(max_tokens = 15, seed = 92092)
+  )
 )
 
-prompt_builder <- function(spec) {
-  data.frame(
-    sample_id = my_dataset$doc_id,
-    prompt = sprintf("[%s]\n\n%s", spec$id, my_dataset$text),
-    truth = my_dataset$label,               # optional gold labels
-    stringsAsFactors = FALSE
-  )
-}
+# Define annotation template (one of three prompt_builder options)
+template_builder <- list(
+  annotation_task = "Classify this news article into exactly one of World, Sports, Business, Sci/Tech.",
+  coding_rules = c("Return only one label", "Respond in JSON format"),
+  examples = data.frame(
+    text = c("Australia's Fairfax Eyes Role In Media Shake-Up (business news about media industry)"),
+    label = c("Business")
+  ),
+  target_text = sprintf("Title: %s\nDescription: %s", ag_news_sample$title, ag_news_sample$description),
+  sample_id = seq_len(nrow(ag_news_sample)),
+  output_format = '{"answer": "World|Sports|Business|Sci/Tech"}'
+)
 
+# Run batch annotation across all models
 annotations <- explore(
   models = models,
-  prompt_builder = prompt_builder,
-  batch_size = 16,
-  keep_prompts = FALSE
+  prompt_builder = template_builder,
+  batch_size = 30,
+  engine = "parallel",
+  clean = TRUE
 )
 
-report <- validate(annotations, gold = my_dataset$label)
-confusion_vs_gold <- report$confusion$vs_gold$llama
-pairwise_tables <- report$confusion$pairwise
-agreement <- report$reliability$cohen
+# View results in long format (one row per model-sample pair)
+head(annotations$annotations)
+#   sample_id  model_id     label
+# 1         1   llama32  Business
+# 2         2   llama32    Sports
+# 3         1  deepseek  Business
+# ...
+
+# View results in wide format (one row per sample, models as columns)
+head(annotations$matrix)
+#   sample_id   llama32  deepseek  gemma12b
+# 1         1  Business  Business  Business
+# 2         2    Sports    Sports     World
+# ...
+
+# Validate predictions against ground truth
+report <- validate(annotations, gold = ag_news_sample$class)
+
+# Confusion matrix for each model vs. gold labels
+print(report$confusion$vs_gold$llama32)
+
+# Pairwise confusion tables between models
+print(report$confusion$pairwise$`llama32 vs deepseek`)
+
+# Inter-annotator agreement (Cohen's Kappa)
+print(report$reliability$cohen)
+
+# Fleiss' Kappa
+print(report$reliability$fleiss)
 ```
 
 For very large datasets you can stream each per-model chunk directly to disk by
@@ -387,13 +439,41 @@ use flat.
    Remember … Respond only with a valid JSON object and nothing else.
    ```
 
-2. **Character vector** – if you already have fully formatted prompts, pass the
-   vector directly (sample IDs are auto-generated).
+2. **Character vector** – if you already have fully formatted prompts, pass the vector directly (sample IDs are auto-generated).
+```
+res_vector <- explore(
+  models = models,
+  prompt_builder = ag_news_sample$vector_prompts,
+  batch_size = 20,
+  engine = "parallel",
+  clean = TRUE
+)
+```
 3. **Custom function** – return a character vector or a data frame with
    `sample_id`/`prompt` (and optionally `truth`) columns for maximum control.
 
 Each model entry may also override `prompt_builder`, enabling different
 templating strategies per model.
+```
+custom_builder <- function(spec) {
+  data.frame(
+    sample_id = seq_len(nrow(ag_news_sample)),
+    prompt = sprintf(
+      "[%s] Classify into World/Sports/Business/Sci/Tech. Title: %s\nDescription: %s\nAnswer:",
+      spec$id, ag_news_sample$title, ag_news_sample$description
+    ),
+    stringsAsFactors = FALSE
+  )
+}
+
+res_custom <- explore(
+  models = models,
+  prompt_builder = custom_builder,
+  batch_size = 12,
+  engine = "parallel",
+  clean = TRUE
+)
+```
 
 ---
 
@@ -402,16 +482,12 @@ templating strategies per model.
 Use `document_start()`/`document_end()` to capture everything that happens between the two calls. The log records timestamps, model metadata (paths, decoding parameters, etc.), and summaries of helpers such as `quick_llama()` or `explore()`.
 
 ```r
-log_path <- file.path(tempdir(), "analysis-log.txt")
-
-document_start(log_path, metadata = list(project = "ag_news_demo"))
+document_start(path="analysis-log.txt")
 
 result <- explore(models = models, prompt_builder = prompt_builder)
 response <- quick_llama("Summarise the latest result.")
 
 document_end()
-
-cat(readLines(log_path), sep = "\n")
 ```
 
 ---
