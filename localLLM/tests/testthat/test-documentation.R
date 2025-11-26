@@ -8,7 +8,7 @@ test_that("document_start/end capture explore events", {
   models <- list(list(id = "mock", predictor = function(prompts, ...) rep("X", length(prompts))))
   builder <- function(spec) data.frame(sample_id = 1:2, prompt = c("Doc A", "Doc B"), stringsAsFactors = FALSE)
 
-  explore(models = models, prompt_builder = builder)
+  explore(models = models, prompts = builder)
 
   path <- document_end()
   expect_equal(normalizePath(path, winslash = "/", mustWork = TRUE), normalizePath(tmp, winslash = "/", mustWork = TRUE))

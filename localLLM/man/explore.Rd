@@ -7,7 +7,7 @@
 explore(
   models,
   instruction = NULL,
-  prompt_builder = NULL,
+  prompts = NULL,
   engine = c("auto", "parallel", "single"),
   batch_size = 8L,
   reuse_models = FALSE,
@@ -27,7 +27,7 @@ least `id` and `model` (path/URL). Each model entry can optionally specify
 \item{instruction}{Default task instruction inserted into `spec` whenever a
 model entry does not override it.}
 
-\item{prompt_builder}{One of: (1) a function (for example `function(spec)`)
+\item{prompts}{One of: (1) a function (for example `function(spec)`)
 that returns prompts (character vector or a data frame with a `prompt` column);
 (2) a character vector of ready-made prompts; or (3) a template list with
 entries such as `annotation_task`, `coding_rules`, `examples`,

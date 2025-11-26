@@ -1,11 +1,15 @@
 # --- FILE: localLLM/R/documentation.R ---
 
+#' @importFrom digest digest
+NULL
+
 .localllm_doc_env <- new.env(parent = emptyenv())
 .localllm_doc_env$active <- FALSE
 .localllm_doc_env$entries <- list()
 .localllm_doc_env$path <- NULL
 .localllm_doc_env$append <- FALSE
 .localllm_doc_env$start_time <- NULL
+.localllm_doc_env$last_hash <- NULL
 
 #' Start automatic run documentation
 #'
@@ -41,6 +45,7 @@ document_start <- function(path = NULL, metadata = list(), append = FALSE) {
   .localllm_doc_env$append <- isTRUE(append)
   .localllm_doc_env$start_time <- start_time
   .localllm_doc_env$entries <- list()
+  .localllm_doc_env$last_hash <- NULL
 
   base_details <- c(.document_session_facts(), metadata)
   .document_record_event("document_start", base_details, timestamp = start_time)
@@ -52,8 +57,11 @@ document_start <- function(path = NULL, metadata = list(), append = FALSE) {
 #'
 #' Flushes the buffered log entries assembled since the matching
 #' [document_start()] call and writes them to the configured text file.
+#' A SHA-256 hash of the written content is appended to the log so runs
+#' can be compared or referenced succinctly.
 #'
-#' @return Invisibly returns the path that was written.
+#' @return Invisibly returns the log file path with attribute `hash` containing
+#'   the SHA-256 digest of the run contents.
 #' @export
 document_end <- function() {
   if (!isTRUE(.localllm_doc_env$active)) {
@@ -71,6 +79,10 @@ document_end <- function() {
 
   lines <- .document_format_entries(entries, .localllm_doc_env$start_time, end_time, .localllm_doc_env$path)
 
+  hash_input <- paste(lines, collapse = "\n")
+  run_hash <- digest::digest(hash_input, algo = "sha256")
+  lines_to_write <- c(lines, sprintf("Hash (SHA-256): %s", run_hash))
+
   path <- .localllm_doc_env$path
   mode <- if (isTRUE(.localllm_doc_env$append) && file.exists(path)) "a" else "w"
   con <- file(path, open = mode, encoding = "UTF-8")
@@ -79,16 +91,18 @@ document_end <- function() {
     writeLines("", con)
     writeLines(strrep("=", 60), con)
   }
-  writeLines(lines, con)
+  writeLines(lines_to_write, con)
 
-  message("localLLM run log written to: ", path)
+  message("localLLM run log written to: ", path, " (hash: ", run_hash, ")")
 
   .localllm_doc_env$active <- FALSE
   .localllm_doc_env$entries <- list()
   .localllm_doc_env$path <- NULL
   .localllm_doc_env$start_time <- NULL
+  .localllm_doc_env$last_hash <- run_hash
 
-  invisible(path)
+  result <- structure(path, hash = run_hash)
+  invisible(result)
 }
 
 .document_record_event <- function(event, details = list(), timestamp = Sys.time()) {

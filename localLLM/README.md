@@ -336,7 +336,7 @@ of per-model predictions. The new `validate()` helper then combines
 `compute_confusion_matrices()` and `intercoder_reliability()` so you can inspect
 gold-vs-model confusion tables and agreement scores in one shot.
 
-The example below demonstrates comparing three LLMs on a news classification task. Note that `Llama-3.2-3B-Instruct-Q5_K_M.gguf` is the package default model (automatically cached by `quick_llama()`), while the other two models need to be downloaded separately using `model_load()` with their URLs or Ollama references (see model download sections above). This example uses the **template list** format for `prompt_builder` to create structured, reproducible prompts (see Prompt Builder Options below for alternative formats).
+The example below demonstrates comparing three LLMs on a news classification task. Note that `Llama-3.2-3B-Instruct-Q5_K_M.gguf` is the package default model (automatically cached by `quick_llama()`), while the other two models need to be downloaded separately using `model_load()` with their URLs or Ollama references (see model download sections above). This example uses the **template list** format for `prompts` to create structured, reproducible prompts (see Prompts Argument Options below for alternative formats).
 
 ```r
 # Load sample dataset
@@ -364,7 +364,7 @@ models <- list(
   )
 )
 
-# Define annotation template (one of three prompt_builder options)
+# Define annotation template (one of three `prompts` options)
 template_builder <- list(
   annotation_task = "Classify this news article into exactly one of World, Sports, Business, Sci/Tech.",
   coding_rules = c("Return only one label", "Respond in JSON format"),
@@ -380,7 +380,7 @@ template_builder <- list(
 # Run batch annotation across all models
 annotations <- explore(
   models = models,
-  prompt_builder = template_builder,
+  prompts = template_builder,
   batch_size = 30,
   engine = "parallel",
   clean = TRUE
@@ -421,9 +421,9 @@ For very large datasets you can stream each per-model chunk directly to disk by
 setting `sink = annotation_sink_csv("annotations.csv")`, which keeps memory
 use flat.
 
-#### Prompt Builder Options
+#### Prompts Argument Options
 
-`prompt_builder` accepts three flexible inputs:
+`prompts` accepts three flexible inputs:
 
 1. **Template list** – provide keys such as `annotation_task`, `coding_rules`,
    `examples`, `target_text`, optional `sample_id`, and `output_format`, or pass
@@ -443,7 +443,7 @@ use flat.
 ```
 res_vector <- explore(
   models = models,
-  prompt_builder = ag_news_sample$vector_prompts,
+  prompts = ag_news_sample$vector_prompts,
   batch_size = 20,
   engine = "parallel",
   clean = TRUE
@@ -468,7 +468,7 @@ custom_builder <- function(spec) {
 
 res_custom <- explore(
   models = models,
-  prompt_builder = custom_builder,
+  prompts = custom_builder,
   batch_size = 12,
   engine = "parallel",
   clean = TRUE
@@ -479,12 +479,12 @@ res_custom <- explore(
 
 ### Automatic Documentation
 
-Use `document_start()`/`document_end()` to capture everything that happens between the two calls. The log records timestamps, model metadata (paths, decoding parameters, etc.), and summaries of helpers such as `quick_llama()` or `explore()`.
+Use `document_start()`/`document_end()` to capture everything that happens between the two calls. The log records timestamps, model metadata (paths, decoding parameters, etc.), summaries of helpers such as `quick_llama()` or `explore()`, and now appends a SHA-256 hash so you can refer to or verify an entire run by a single fingerprint.
 
 ```r
 document_start(path="analysis-log.txt")
 
-result <- explore(models = models, prompt_builder = prompt_builder)
+result <- explore(models = models, prompts = prompt_builder)
 response <- quick_llama("Summarise the latest result.")
 
 document_end()

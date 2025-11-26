@@ -13,7 +13,7 @@
 #'   `predictor` function for mock/testing scenarios.
 #' @param instruction Default task instruction inserted into `spec` whenever a
 #'   model entry does not override it.
-#' @param prompt_builder One of: (1) a function (for example `function(spec)`)
+#' @param prompts One of: (1) a function (for example `function(spec)`)
 #'   that returns prompts (character vector or a data frame with a `prompt` column);
 #'   (2) a character vector of ready-made prompts; or (3) a template list with
 #'   entries such as `annotation_task`, `coding_rules`, `examples`,
@@ -43,7 +43,7 @@
 #' @export
 explore <- function(models,
                     instruction = NULL,
-                    prompt_builder = NULL,
+                    prompts = NULL,
                     engine = c("auto", "parallel", "single"),
                     batch_size = 8L,
                     reuse_models = FALSE,
@@ -84,16 +84,16 @@ explore <- function(models,
   model_cache <- if (reuse_models) new.env(parent = emptyenv()) else NULL
 
   for (spec in specs) {
-    builder <- .resolve_prompt_builder(spec$prompt_builder %||% prompt_builder)
+    builder <- .resolve_prompt_builder(spec$prompt_builder %||% prompts)
     if (is.null(builder)) {
       stop(sprintf("Model '%s' is missing a prompt builder", spec$id), call. = FALSE)
     }
 
     prompt_data <- builder(spec)
     prompt_frame <- .coerce_prompt_frame(prompt_data)
-    prompts <- prompt_frame$prompt
+    prompt_values <- prompt_frame$prompt
 
-    run_info <- .run_model_over_data(prompts = prompts,
+    run_info <- .run_model_over_data(prompts = prompt_values,
                                      spec = spec,
                                      engine = engine,
                                      batch_size = batch_size,
@@ -114,7 +114,7 @@ explore <- function(models,
     }
 
     if (keep_prompts) {
-      chunk$prompt <- prompts
+      chunk$prompt <- prompt_values
     }
 
     if (is.null(sink)) {
@@ -125,7 +125,7 @@ explore <- function(models,
 
     .document_record_event("explore_model", list(
       model_id = spec$id,
-      prompt_count = length(prompts),
+      prompt_count = length(prompt_values),
       engine = engine,
       batch_size = batch_size,
       reuse_models = reuse_models,

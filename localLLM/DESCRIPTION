@@ -20,7 +20,8 @@ Imports:
     Rcpp (>= 1.0.14),
     tools,
     utils,
-    jsonlite
+    jsonlite,
+    digest
 Suggests:
     testthat (>= 3.0.0),
     covr

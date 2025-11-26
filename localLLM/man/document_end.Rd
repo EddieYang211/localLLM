@@ -7,9 +7,10 @@
 document_end()
 }
 \value{
-Invisibly returns the path that was written.
+Invisibly returns the log file path with attribute `hash` holding the SHA-256 digest of the run contents.
 }
 \description{
 Flushes the buffered log entries assembled since the matching
-[document_start()] call and writes them to the configured text file.
+[document_start()] call and writes them to the configured text file. A SHA-256
+hash of the run is appended to the log for quick comparison/reference.
 }

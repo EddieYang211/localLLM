@@ -24,7 +24,7 @@ test_that("explore works with predictors", {
 
   res <- explore(
     models = models,
-    prompt_builder = builder,
+    prompts = builder,
     keep_prompts = TRUE
   )
 
@@ -56,7 +56,7 @@ test_that("template prompt builder generates structured prompts", {
   models <- list(list(id = "tmpl", predictor = function(prompts, ...) rep("POS", length(prompts))))
 
   res <- explore(models = models,
-                 prompt_builder = template,
+                 prompts = template,
                  keep_prompts = TRUE)
 
   expect_equal(nrow(res$annotations), nrow(dataset))
@@ -72,7 +72,7 @@ test_that("character vector prompt builder passes prompts through", {
   models <- list(list(id = "vec", predictor = function(prompts, ...) prompts))
 
   res <- explore(models = models,
-                 prompt_builder = ready,
+                 prompts = ready,
                  keep_prompts = TRUE)
 
   prompts_seen <- res$annotations$prompt[res$annotations$model_id == "vec"]
@@ -107,7 +107,7 @@ test_that("annotation sink streams chunks to CSV", {
   builder <- function(spec) data.frame(sample_id = data$id, prompt = data$text, stringsAsFactors = FALSE)
 
   res <- explore(models = models,
-                 prompt_builder = builder,
+                 prompts = builder,
                  sink = sink_fn)
 
   expect_null(res$annotations)
