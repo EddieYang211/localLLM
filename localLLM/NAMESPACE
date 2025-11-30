@@ -9,6 +9,7 @@ importFrom(parallel, detectCores)
 export(install_localLLM)
 export(lib_is_installed)
 export(get_lib_path)
+export(hardware_profile)
 
 # Export main API functions
 export(backend_init)

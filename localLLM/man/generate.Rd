@@ -14,7 +14,8 @@ generate(
   repeat_last_n = 0L,
   penalty_repeat = 1,
   seed = 1234L,
-  clean = FALSE
+  clean = FALSE,
+  hash = TRUE
 )
 }
 \arguments{
@@ -37,6 +38,10 @@ generate(
 \item{seed}{Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output}
 
 \item{clean}{If TRUE, strip common chat-template control tokens from the generated text (default: FALSE).}
+
+\item{hash}{When `TRUE` (default), computes SHA-256 hashes for the provided prompt and
+the resulting output. Hashes are attached via the `"hashes"` attribute and
+printed to the console.}
 }
 \value{
 Character string containing the generated text

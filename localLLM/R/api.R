@@ -102,6 +102,7 @@ model_load <- function(model_path, cache_dir = NULL, n_gpu_layers = 0L, use_mmap
   if (check_memory) {
     .check_model_memory_requirements(resolved_path)
   }
+  .warn_if_model_exceeds_system(resolved_path, use_mmap, n_gpu_layers)
   
   model_ptr <- .Call("c_r_model_load_safe", 
                      as.character(resolved_path),
@@ -110,6 +111,13 @@ model_load <- function(model_path, cache_dir = NULL, n_gpu_layers = 0L, use_mmap
                      as.logical(use_mlock),
                      as.logical(check_memory),
                      as.integer(verbosity))
+
+  attr(model_ptr, "model_path") <- resolved_path
+  attr(model_ptr, "model_size_bytes") <- suppressWarnings(file.info(resolved_path)$size)
+  attr(model_ptr, "model_identifier") <- .hash_normalise_model_source(
+    model_path,
+    fallback = if (!is.null(resolved_path)) basename(resolved_path) else NA_character_
+  )
 
   .document_record_event("model_load", list(
     resolved_path = resolved_path,
@@ -182,7 +190,10 @@ context_create <- function(model, n_ctx = 2048L, n_threads = 4L, n_seq_max = 1L,
 
   # Store model reference in context for auto-tokenization support in generate()
   attr(ctx, "model") <- model
+  attr(ctx, "n_ctx") <- as.integer(n_ctx)
+  attr(ctx, "n_seq_max") <- as.integer(n_seq_max)
 
+  .warn_if_context_large(as.integer(n_ctx), as.integer(n_seq_max))
   ctx
 }
 
@@ -336,6 +347,9 @@ apply_chat_template <- function(model, messages, template = NULL, add_assistant 
 #' @param penalty_repeat Repetition penalty strength (default: 1.0). Values >1 discourage repetition. Set to 1.0 to disable
 #' @param seed Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output
 #' @param clean If TRUE, strip common chat-template control tokens from the generated text (default: FALSE).
+#' @param hash When `TRUE` (default), computes SHA-256 hashes for the provided prompt and
+#'   the resulting output. Hashes are attached via the `"hashes"` attribute and
+#'   printed to the console.
 #' @return Character string containing the generated text
 #' @export
 #' @examples
@@ -360,7 +374,7 @@ apply_chat_template <- function(model, messages, template = NULL, add_assistant 
 #' @seealso \code{\link{quick_llama}}, \code{\link{generate_parallel}}, \code{\link{context_create}}
 generate <- function(context, prompt, max_tokens = 100L, top_k = 40L, top_p = 1.0,
                      temperature = 0.0, repeat_last_n = 0L, penalty_repeat = 1.0,
-                     seed = 1234L, clean = FALSE) {
+                     seed = 1234L, clean = FALSE, hash = TRUE) {
   .ensure_backend_loaded()
   if (!inherits(context, "localllm_context")) {
     stop("Expected a localllm_context object", call. = FALSE)
@@ -380,6 +394,7 @@ generate <- function(context, prompt, max_tokens = 100L, top_k = 40L, top_p = 1.
 
   # Auto-tokenize the prompt
   tokens <- tokenize(model, prompt, add_special = TRUE)
+  .warn_if_prompt_near_limit(tokens, max_tokens, attr(context, "n_ctx"))
 
   result <- .Call("c_r_generate",
                   context,
@@ -394,6 +409,29 @@ generate <- function(context, prompt, max_tokens = 100L, top_k = 40L, top_p = 1.
 
   if (isTRUE(clean)) {
     result <- .clean_output(result)
+  }
+
+  if (isTRUE(hash)) {
+    input_payload <- list(
+      type = "generate",
+      model = .hash_model_identifier(model),
+      prompt = prompt,
+      tokens = tokens,
+      params = list(
+        max_tokens = max_tokens,
+        top_k = top_k,
+        top_p = top_p,
+        temperature = temperature,
+        repeat_last_n = repeat_last_n,
+        penalty_repeat = penalty_repeat,
+        seed = seed,
+        clean = isTRUE(clean)
+      )
+    )
+    output_payload <- list(type = "generate", output = result)
+    input_hash <- .hash_payload(input_payload)
+    output_hash <- .hash_payload(output_payload)
+    result <- .hash_attach_metadata(result, input_hash, output_hash, "generate")
   }
 
   result
@@ -413,27 +451,32 @@ generate <- function(context, prompt, max_tokens = 100L, top_k = 40L, top_p = 1.
 #' @param progress If \code{TRUE}, displays a console progress bar indicating batch
 #'   completion status while generations are running (default: FALSE).
 #' @param clean If TRUE, remove common chat-template control tokens from each generated text (default: FALSE).
+#' @param hash When `TRUE` (default), computes SHA-256 hashes for the supplied prompts and
+#'   generated outputs. Hashes are attached via the `"hashes"` attribute and
+#'   printed to the console.
 #' @return Character vector of generated texts
 #' @export
 generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, top_p = 1.0,
                               temperature = 0.0, repeat_last_n = 0L, penalty_repeat = 1.0,
-                              seed = 1234L, progress = FALSE, clean = FALSE) {
+                              seed = 1234L, progress = FALSE, clean = FALSE, hash = TRUE) {
   .ensure_backend_loaded()
   if (!inherits(context, "localllm_context")) {
     stop("Expected a localllm_context object", call. = FALSE)
   }
   
+  prompts_chr <- as.character(prompts)
+  
   result <- .Call("c_r_generate_parallel",
-        context,
-        as.character(prompts),
-        as.integer(max_tokens),
-        as.integer(top_k),
-        as.numeric(top_p),
-        as.numeric(temperature),
-        as.integer(repeat_last_n),
-        as.numeric(penalty_repeat),
-        as.integer(seed),
-        as.logical(progress))
+                  context,
+                  prompts_chr,
+                  as.integer(max_tokens),
+                  as.integer(top_k),
+                  as.numeric(top_p),
+                  as.numeric(temperature),
+                  as.integer(repeat_last_n),
+                  as.numeric(penalty_repeat),
+                  as.integer(seed),
+                  as.logical(progress))
 
   if (isTRUE(clean)) {
     if (is.list(result)) {
@@ -441,6 +484,29 @@ generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, 
     } else if (is.character(result)) {
       result <- vapply(result, .clean_output, character(1), USE.NAMES = TRUE)
     }
+  }
+
+  if (isTRUE(hash)) {
+    input_payload <- list(
+      type = "generate_parallel",
+      model = .hash_model_identifier(attr(context, "model")),
+      prompts = prompts_chr,
+      params = list(
+        max_tokens = max_tokens,
+        top_k = top_k,
+        top_p = top_p,
+        temperature = temperature,
+        repeat_last_n = repeat_last_n,
+        penalty_repeat = penalty_repeat,
+        seed = seed,
+        clean = isTRUE(clean),
+        progress = isTRUE(progress)
+      )
+    )
+    output_payload <- list(type = "generate_parallel", output = result)
+    input_hash <- .hash_payload(input_payload)
+    output_hash <- .hash_payload(output_payload)
+    result <- .hash_attach_metadata(result, input_hash, output_hash, "generate_parallel")
   }
 
   result

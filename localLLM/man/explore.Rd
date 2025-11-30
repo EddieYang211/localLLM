@@ -14,14 +14,15 @@ explore(
   sink = NULL,
   progress = interactive(),
   clean = TRUE,
-  keep_prompts = FALSE
+  keep_prompts = FALSE,
+  hash = TRUE
 )
 }
 \arguments{
 \item{models}{Model definitions. Accepts either a named character vector
 (names become `model_id`s) or a list where each element is a list with at
 least `id` and `model` (path/URL). Each model entry can optionally specify
-`instruction`, `generation` parameters, a custom `prompt_builder`, or a
+`instruction`, `generation` parameters, custom `prompts`, or a
 `predictor` function for mock/testing scenarios.}
 
 \item{instruction}{Default task instruction inserted into `spec` whenever a
@@ -34,7 +35,7 @@ entries such as `annotation_task`, `coding_rules`, `examples`,
 `target_text`, `sample_id`, `output_format`, and optional
 `data`/`text_col`/`id_col` keys. Template lists are rendered using the
 built-in annotation format described in the README. When `NULL`, each model
-must provide its own `prompt_builder`.}
+must provide its own `prompts` entry.}
 
 \item{engine}{One of `"auto"`, `"parallel"`, or `"single"`. Controls whether
 `generate_parallel()` or `generate()` is used under the hood.}
@@ -58,6 +59,11 @@ tokens from the outputs.}
 
 \item{keep_prompts}{If `TRUE`, the generated prompts are preserved in the
 long-format output (useful for audits). Defaults to `FALSE`.}
+
+\item{hash}{When `TRUE` (default), computes SHA-256 hashes for each model's prompts and
+resulting labels so replication collaborators can verify inputs and
+outputs. Hashes are printed per model and attached to the returned list via
+the `"hashes"` attribute.}
 }
 \value{
 A list with elements `annotations` (long table) and `matrix` (wide

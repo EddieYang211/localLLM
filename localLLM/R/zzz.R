@@ -102,6 +102,8 @@
 
 # Environment to store dynamic library information
 .pkg_env <- new.env(parent = emptyenv())
+.pkg_env$lib <- NULL
+.pkg_env$system_profile <- NULL
 
 .onAttach <- function(libname, pkgname) {
   if (lib_is_installed()) {
@@ -138,6 +140,8 @@
       )
     }
   }
+  # Always attempt to detect system profile so safety checks have data
+  try(.ensure_system_profile(), silent = TRUE)
 }
 
 .onUnload <- function(libpath) {

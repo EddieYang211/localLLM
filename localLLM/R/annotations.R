@@ -9,7 +9,7 @@
 #' @param models Model definitions. Accepts either a named character vector
 #'   (names become `model_id`s) or a list where each element is a list with at
 #'   least `id` and `model` (path/URL). Each model entry can optionally specify
-#'   `instruction`, `generation` parameters, a custom `prompt_builder`, or a
+#'   `instruction`, `generation` parameters, custom `prompts`, or a
 #'   `predictor` function for mock/testing scenarios.
 #' @param instruction Default task instruction inserted into `spec` whenever a
 #'   model entry does not override it.
@@ -20,7 +20,7 @@
 #'   `target_text`, `sample_id`, `output_format`, and optional
 #'   `data`/`text_col`/`id_col` keys. Template lists are rendered using the
 #'   built-in annotation format described in the README. When `NULL`, each model
-#'   must provide its own `prompt_builder`.
+#'   must provide its own `prompts` entry.
 #' @param engine One of `"auto"`, `"parallel"`, or `"single"`. Controls whether
 #'   `generate_parallel()` or `generate()` is used under the hood.
 #' @param batch_size Number of prompts to send per backend call when the
@@ -37,6 +37,10 @@
 #'   tokens from the outputs.
 #' @param keep_prompts If `TRUE`, the generated prompts are preserved in the
 #'   long-format output (useful for audits). Defaults to `FALSE`.
+#' @param hash When `TRUE` (default), computes SHA-256 hashes for each model's prompts and
+#'   resulting labels so replication collaborators can verify inputs and
+#'   outputs. Hashes are printed per model and attached to the returned list via
+#'   the `"hashes"` attribute.
 #' @return A list with elements `annotations` (long table) and `matrix` (wide
 #'   annotation matrix). When `sink` is supplied the `annotations` and `matrix`
 #'   entries are set to `NULL` to avoid duplicating the streamed output.
@@ -50,7 +54,8 @@ explore <- function(models,
                     sink = NULL,
                     progress = interactive(),
                     clean = TRUE,
-                    keep_prompts = FALSE) {
+                    keep_prompts = FALSE,
+                    hash = TRUE) {
   engine <- match.arg(engine)
   batch_size <- as.integer(batch_size)
   if (batch_size < 1L) {
@@ -81,10 +86,11 @@ explore <- function(models,
   ))
 
   collected <- list()
+  hash_records <- list()
   model_cache <- if (reuse_models) new.env(parent = emptyenv()) else NULL
 
   for (spec in specs) {
-    builder <- .resolve_prompt_builder(spec$prompt_builder %||% prompts)
+    builder <- .resolve_prompts_source(spec$prompts %||% prompts, spec)
     if (is.null(builder)) {
       stop(sprintf("Model '%s' is missing a prompt builder", spec$id), call. = FALSE)
     }
@@ -100,7 +106,8 @@ explore <- function(models,
                                      reuse_models = reuse_models,
                                      model_cache = model_cache,
                                      progress = progress,
-                                     clean = clean)
+                                     clean = clean,
+                                     hash = hash)
 
     chunk <- data.frame(
       sample_id = prompt_frame$sample_id,
@@ -121,6 +128,21 @@ explore <- function(models,
       collected[[length(collected) + 1L]] <- chunk
     } else {
       sink(chunk, spec$id)
+    }
+
+    if (isTRUE(hash)) {
+      hash_records[[length(hash_records) + 1L]] <- list(
+        model_id = spec$id,
+        input_hash = run_info$input_hash,
+        output_hash = run_info$output_hash
+      )
+      message(sprintf("[explore:%s] input hash: %s | output hash: %s",
+                      spec$id, run_info$input_hash, run_info$output_hash))
+      .document_record_event("explore_model_hash", list(
+        model_id = spec$id,
+        input_hash = run_info$input_hash,
+        output_hash = run_info$output_hash
+      ))
     }
 
     .document_record_event("explore_model", list(
@@ -145,10 +167,21 @@ explore <- function(models,
     sink = !is.null(sink)
   ))
 
-  list(
+  result <- list(
     annotations = annotations,
     matrix = matrix_view
   )
+
+  if (isTRUE(hash) && length(hash_records)) {
+    hash_df <- do.call(rbind, lapply(hash_records, function(x) {
+      data.frame(x, stringsAsFactors = FALSE)
+    }))
+    rownames(hash_df) <- NULL
+    attr(result, "hashes") <- hash_df
+    .document_record_event("explore_hash_summary", list(records = hash_df))
+  }
+
+  result
 }
 
 #' Compute confusion matrices from multi-model annotations
@@ -373,7 +406,7 @@ annotation_sink_csv <- function(path, append = FALSE) {
 
 .coerce_prompt_frame <- function(builder_output) {
   if (is.null(builder_output)) {
-    stop("prompt_builder must return prompts", call. = FALSE)
+    stop("prompts input must return at least one prompt", call. = FALSE)
   }
 
   if (is.character(builder_output)) {
@@ -382,7 +415,7 @@ annotation_sink_csv <- function(path, append = FALSE) {
     truth <- NULL
   } else if (is.data.frame(builder_output)) {
     if (!"prompt" %in% names(builder_output)) {
-      stop("prompt_builder data frame output must contain a 'prompt' column", call. = FALSE)
+      stop("prompts data frame output must contain a 'prompt' column", call. = FALSE)
     }
     prompts <- as.character(builder_output$prompt)
     sample_id <- if ("sample_id" %in% names(builder_output)) builder_output$sample_id else seq_along(prompts)
@@ -390,20 +423,20 @@ annotation_sink_csv <- function(path, append = FALSE) {
   } else if (is.list(builder_output)) {
     prompts <- builder_output$prompt %||% builder_output$prompts
     if (is.null(prompts)) {
-      stop("prompt_builder list output must include 'prompt' or 'prompts'", call. = FALSE)
+      stop("prompts list output must include 'prompt' or 'prompts'", call. = FALSE)
     }
     sample_id <- builder_output$sample_id %||% seq_along(prompts)
     truth <- builder_output$truth %||% NULL
   } else {
-    stop("prompt_builder must return a character vector, data frame, or list", call. = FALSE)
+    stop("prompts must be provided as a character vector, data frame, or list", call. = FALSE)
   }
 
   if (!is.character(prompts)) {
-    stop("prompts returned by prompt_builder must be character", call. = FALSE)
+    stop("prompts must resolve to a character vector", call. = FALSE)
   }
 
   if (length(prompts) == 0L) {
-    stop("prompt_builder must return at least one prompt", call. = FALSE)
+    stop("prompts input must return at least one prompt", call. = FALSE)
   }
 
   if (length(sample_id) != length(prompts)) {
@@ -439,23 +472,23 @@ annotation_sink_csv <- function(path, append = FALSE) {
   sink
 }
 
-.resolve_prompt_builder <- function(builder) {
-  if (is.null(builder)) {
+.resolve_prompts_source <- function(prompts_source, spec = NULL) {
+  if (is.null(prompts_source)) {
     return(NULL)
   }
-  if (is.function(builder)) {
-    return(builder)
+  if (is.function(prompts_source)) {
+    return(prompts_source)
   }
-  if (is.character(builder)) {
-    return(.vector_prompt_builder(builder))
+  if (is.character(prompts_source)) {
+    return(.prompts_from_vector(prompts_source))
   }
-  if (is.list(builder)) {
-    return(.template_prompt_builder(builder))
+  if (is.list(prompts_source)) {
+    return(.prompts_from_template(prompts_source))
   }
-  stop("prompt_builder must be a function, character vector, or template list", call. = FALSE)
+  stop("`prompts` must be a function, character vector, or template list", call. = FALSE)
 }
 
-.vector_prompt_builder <- function(prompts) {
+.prompts_from_vector <- function(prompts) {
   prompts <- as.character(prompts)
   function(spec) { # nolint
     data.frame(
@@ -466,9 +499,9 @@ annotation_sink_csv <- function(path, append = FALSE) {
   }
 }
 
-.template_prompt_builder <- function(config) {
+.prompts_from_template <- function(config) {
   if (!is.list(config)) {
-    stop("Template prompt builder must be supplied as a list", call. = FALSE)
+    stop("Template prompts configuration must be supplied as a list", call. = FALSE)
   }
 
   fmt <- tolower(config$format %||% "localllm_template")
@@ -639,7 +672,7 @@ annotation_sink_csv <- function(path, append = FALSE) {
     id = spec$id,
     model = spec$model %||% NA_character_,
     has_predictor = isTRUE(is.function(spec$predictor)),
-    has_prompt_builder = isTRUE(is.function(spec$prompt_builder)),
+    has_custom_prompts = !is.null(spec$prompts),
     generation = .explore_generation_summary(spec$generation)
   )
 }
@@ -659,8 +692,26 @@ annotation_sink_csv <- function(path, append = FALSE) {
                                  reuse_models,
                                  model_cache,
                                  progress,
-                                 clean) {
+                                 clean,
+                                 hash = FALSE) {
   outputs <- NULL
+  input_hash <- NULL
+  output_hash <- NULL
+
+  if (isTRUE(hash)) {
+    input_payload <- list(
+      type = "explore",
+      model_id = spec$id,
+      model_source = .hash_normalise_model_source(spec$model, fallback = spec$id),
+      prompts = prompts,
+      generation = .explore_generation_summary(spec$generation),
+      engine = engine,
+      batch_size = batch_size,
+      reuse_models = isTRUE(reuse_models),
+      clean = isTRUE(clean)
+    )
+    input_hash <- .hash_payload(input_payload)
+  }
 
   if (is.function(spec$predictor)) {
     outputs <- spec$predictor(prompts, NULL, spec)
@@ -669,7 +720,8 @@ annotation_sink_csv <- function(path, append = FALSE) {
     }
   } else {
     handles <- .get_or_create_handles(spec, reuse_models, model_cache, progress)
-    outputs <- .generate_in_batches(prompts, handles$context, engine, batch_size, spec, progress, clean)
+    outputs <- .generate_in_batches(prompts, handles$context, engine, batch_size, spec, progress,
+                                    clean, hash_backend = FALSE)
     if (!reuse_models) {
       handles$model <- NULL
       handles$context <- NULL
@@ -677,7 +729,16 @@ annotation_sink_csv <- function(path, append = FALSE) {
     }
   }
 
-  list(output = outputs)
+  if (isTRUE(hash)) {
+    output_payload <- list(
+      type = "explore",
+      model_id = spec$id,
+      output = outputs
+    )
+    output_hash <- .hash_payload(output_payload)
+  }
+
+  list(output = outputs, input_hash = input_hash, output_hash = output_hash)
 }
 
 .get_or_create_handles <- function(spec, reuse_models, model_cache, progress) {
@@ -721,7 +782,8 @@ annotation_sink_csv <- function(path, append = FALSE) {
   handles
 }
 
-.generate_in_batches <- function(prompts, context, engine, batch_size, spec, progress, clean) {
+.generate_in_batches <- function(prompts, context, engine, batch_size, spec, progress, clean,
+                                 hash_backend = FALSE) {
   n <- length(prompts)
   outputs <- character(n)
   use_parallel <- switch(engine,
@@ -738,6 +800,7 @@ annotation_sink_csv <- function(path, append = FALSE) {
   gen_args$repeat_last_n <- gen_args$repeat_last_n %||% 0L
   gen_args$penalty_repeat <- gen_args$penalty_repeat %||% 1.0
   gen_args$seed <- gen_args$seed %||% 1234L
+  gen_args$hash <- isTRUE(hash_backend)
 
   idx <- 1L
   while (idx <= n) {

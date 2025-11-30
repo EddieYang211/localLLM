@@ -25,6 +25,7 @@ quick_llama(
   seed = 1234L,
   progress = interactive(),
   clean = TRUE,
+  hash = TRUE,
   ...
 )
 }
@@ -73,6 +74,10 @@ Default: \code{interactive()}. Has no effect for single-prompt runs.}
 
 \item{clean}{Whether to strip chat-template control tokens from the generated output.
 Defaults to \code{TRUE}.}
+
+\item{hash}{When `TRUE` (default), compute SHA-256 hashes for the prompts fed into the
+backend and the corresponding outputs. Hashes are attached via the
+`"hashes"` attribute and printed to the console.}
 
 \item{...}{Additional parameters passed to generate() or generate_parallel()}
 }

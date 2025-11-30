@@ -15,7 +15,8 @@ generate_parallel(
   penalty_repeat = 1,
   seed = 1234L,
   progress = FALSE,
-  clean = FALSE
+  clean = FALSE,
+  hash = TRUE
 )
 }
 \arguments{
@@ -41,6 +42,10 @@ generate_parallel(
 completion status while generations are running (default: FALSE).}
 
 \item{clean}{If TRUE, remove common chat-template control tokens from each generated text (default: FALSE).}
+
+\item{hash}{When `TRUE` (default), computes SHA-256 hashes for the supplied prompts and
+generated outputs. Hashes are attached via the `"hashes"` attribute and
+printed to the console.}
 }
 \value{
 Character vector of generated texts

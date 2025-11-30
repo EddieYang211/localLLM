@@ -452,10 +452,10 @@ res_vector <- explore(
 3. **Custom function** – return a character vector or a data frame with
    `sample_id`/`prompt` (and optionally `truth`) columns for maximum control.
 
-Each model entry may also override `prompt_builder`, enabling different
+Each model entry may also supply its own `prompts`, enabling different
 templating strategies per model.
 ```
-custom_builder <- function(spec) {
+custom_prompts <- function(spec) {
   data.frame(
     sample_id = seq_len(nrow(ag_news_sample)),
     prompt = sprintf(
@@ -468,7 +468,7 @@ custom_builder <- function(spec) {
 
 res_custom <- explore(
   models = models,
-  prompts = custom_builder,
+  prompts = custom_prompts,
   batch_size = 12,
   engine = "parallel",
   clean = TRUE
@@ -484,11 +484,38 @@ Use `document_start()`/`document_end()` to capture everything that happens betwe
 ```r
 document_start(path="analysis-log.txt")
 
-result <- explore(models = models, prompts = prompt_builder)
+result <- explore(models = models, prompts = custom_prompts)
 response <- quick_llama("Summarise the latest result.")
 
 document_end()
 ```
+
+#### Input/Output Hash Verification
+
+All generation functions (`generate()`, `generate_parallel()`, `quick_llama()`, and `explore()`) compute SHA-256 hashes for both inputs and outputs by default. This enables reproducibility verification and collaborative replication:
+
+```r
+# Hashes are printed to console and attached as attributes
+result <- quick_llama("What is the capital of France?")
+attr(result, "hashes")  # $input, $output
+
+# For explore(), hashes are computed per model
+res <- explore(models = models, prompts = custom_prompts, hash = TRUE)
+attr(res, "hashes")  # data.frame with model_id, input_hash, output_hash
+```
+
+Hashes include model identifiers, prompts, generation parameters, and outputs, allowing collaborators to verify they used identical configurations and obtained matching results. Set `hash = FALSE` to disable hash computation if not needed.
+
+### Hardware Awareness & Safety Warnings
+
+When localLLM attaches it performs a lightweight hardware probe so the package
+can warn before a model exhausts your machine's resources. Inspect the cached
+profile with `hardware_profile()` to see the detected OS, RAM, CPU cores, and
+any GPU VRAM. Model loading/context creation compares your request to this
+profile and emits a warning when RAM/VRAM looks insufficient. Leave the safety
+warnings enabled (default) to reduce RStudio crashes, or disable them with
+`options(localllm.safety_warnings = FALSE)` if you prefer to manage resources
+manually.
 
 ---
 

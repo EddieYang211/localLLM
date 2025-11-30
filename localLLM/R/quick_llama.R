@@ -34,6 +34,9 @@
 #'   Default: \code{interactive()}. Has no effect for single-prompt runs.
 #' @param clean Whether to strip chat-template control tokens from the generated output.
 #'   Defaults to \code{TRUE}.
+#' @param hash When `TRUE` (default), compute SHA-256 hashes for the prompts fed into the
+#'   backend and the corresponding outputs. Hashes are attached via the
+#'   `"hashes"` attribute and printed to the console.
 #' @param ... Additional parameters passed to generate() or generate_parallel()
 #'
 #' @return Character string (single prompt) or named list (multiple prompts)
@@ -88,6 +91,7 @@ quick_llama <- function(prompt,
                         seed = 1234L,
                         progress = interactive(),
                         clean = TRUE,
+                        hash = TRUE,
                         ...) {
   
   # Validate inputs
@@ -151,8 +155,12 @@ quick_llama <- function(prompt,
   }
   
   # Generate text
+  # Determine formatted payload for hashing downstream
+  formatted_payload <- NULL
+
   result <- if (length(prompt) == 1) {
     # Single prompt
+    formatted_payload <- formatted_prompt
     .generate_single(formatted_prompt, max_tokens, top_k, top_p, temperature, 
                      repeat_last_n, penalty_repeat, seed, stream)
   } else {
@@ -173,6 +181,7 @@ quick_llama <- function(prompt,
     } else {
       formatted_prompts <- prompt
     }
+    formatted_payload <- formatted_prompts
     .generate_multiple(formatted_prompts, max_tokens, top_k, top_p, temperature, 
                        repeat_last_n, penalty_repeat, seed, stream, progress)
   }
@@ -210,6 +219,43 @@ quick_llama <- function(prompt,
     stream = isTRUE(stream)
   ))
   
+  if (isTRUE(hash)) {
+    attr_model <- .hash_model_identifier(.quick_llama_env$model)
+    input_payload <- list(
+      type = "quick_llama",
+      model_identifier = attr_model,
+      model_argument = if (is.character(model) && length(model) == 1) {
+        .hash_normalise_model_source(model)
+      } else {
+        NA_character_
+      },
+      n_threads = n_threads,
+      n_ctx = n_ctx,
+      n_gpu_layers = n_gpu_layers,
+      params = list(
+        max_tokens = max_tokens,
+        top_k = top_k,
+        top_p = top_p,
+        temperature = temperature,
+        repeat_last_n = repeat_last_n,
+        penalty_repeat = penalty_repeat,
+        min_p = min_p,
+        seed = seed,
+        auto_format = isTRUE(auto_format),
+        system_prompt = system_prompt,
+        chat_template = chat_template %||% NA_character_,
+        clean = isTRUE(clean),
+        stream = isTRUE(stream)
+      ),
+      raw_prompt = prompt,
+      formatted_prompt = formatted_payload
+    )
+    output_payload <- list(type = "quick_llama", output = result)
+    input_hash <- .hash_payload(input_payload)
+    output_hash <- .hash_payload(output_payload)
+    result <- .hash_attach_metadata(result, input_hash, output_hash, "quick_llama")
+  }
+
   result
 }
 
@@ -363,19 +409,20 @@ quick_llama_reset <- function() {
 #' @return Generated text string
 #' @noRd
 .generate_single <- function(prompt, max_tokens, top_k, top_p, temperature, 
-                             repeat_last_n, penalty_repeat, seed, stream, ...) {
+                             repeat_last_n, penalty_repeat, seed, stream, hash = FALSE, ...) {
   
   context <- .quick_llama_env$context
   # Generate text (auto-tokenization is now handled by generate())
   message("Generating...")
   result <- generate(context, prompt,
-                    max_tokens = max_tokens,
-                    top_k = top_k,
-                    top_p = top_p,
-                    temperature = temperature,
-                    repeat_last_n = repeat_last_n,
-                    penalty_repeat = penalty_repeat,
-                    seed = seed)
+                     max_tokens = max_tokens,
+                     top_k = top_k,
+                     top_p = top_p,
+                     temperature = temperature,
+                     repeat_last_n = repeat_last_n,
+                     penalty_repeat = penalty_repeat,
+                     seed = seed,
+                     hash = hash)
   result
 }
 
@@ -393,7 +440,8 @@ quick_llama_reset <- function() {
 #' @return Named list of generated texts
 #' @noRd
 .generate_multiple <- function(prompts, max_tokens, top_k, top_p, temperature, 
-                               repeat_last_n, penalty_repeat, seed, stream, progress, ...) {
+                               repeat_last_n, penalty_repeat, seed, stream, progress,
+                               hash = FALSE, ...) {
   
   context <- .quick_llama_env$context
   
@@ -401,14 +449,15 @@ quick_llama_reset <- function() {
   
   # Use parallel generation for better performance (streaming flag available for future use)
   results <- generate_parallel(context, prompts,
-                              max_tokens = max_tokens,
-                              top_k = top_k,
-                              top_p = top_p,
-                              temperature = temperature,
-                              repeat_last_n = repeat_last_n,
-                              penalty_repeat = penalty_repeat,
-                              seed = seed,
-                              progress = progress)
+                               max_tokens = max_tokens,
+                               top_k = top_k,
+                               top_p = top_p,
+                               temperature = temperature,
+                               repeat_last_n = repeat_last_n,
+                               penalty_repeat = penalty_repeat,
+                               seed = seed,
+                               progress = progress,
+                               hash = hash)
   
   # Return as named list
   names(results) <- paste0("prompt_", seq_along(prompts))
