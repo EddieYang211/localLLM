@@ -247,8 +247,8 @@ compute_confusion_matrices <- function(annotations,
 #' Intercoder reliability for LLM annotations
 #'
 #' @inheritParams compute_confusion_matrices
-#' @param method One of `"auto"`, `"cohen"`, or `"fleiss"`. The `"auto"`
-#'   setting computes both pairwise Cohen's Kappa and Fleiss' Kappa (when
+#' @param method One of `"auto"`, `"cohen"`, or `"krippendorff"`. The `"auto"`
+#'   setting computes both pairwise Cohen's Kappa and Krippendorff's Alpha (when
 #'   applicable).
 #' @param sample_col Column name that identifies samples when `annotations` is a
 #'   user-provided data frame.
@@ -257,10 +257,10 @@ compute_confusion_matrices <- function(annotations,
 #' @param label_col Column name containing model predictions when using a custom
 #'   `annotations` data frame.
 #' @return A list containing `cohen` (data frame of pairwise kappas) and/or
-#'   `fleiss` (overall statistic with per-item agreement scores).
+#'   `krippendorff` (overall alpha statistic with per-item agreement scores).
 #' @export
 intercoder_reliability <- function(annotations,
-                                   method = c("auto", "cohen", "fleiss"),
+                                   method = c("auto", "cohen", "krippendorff"),
                                    label_levels = NULL,
                                    sample_col = "sample_id",
                                    model_col = "model_id",
@@ -271,7 +271,7 @@ intercoder_reliability <- function(annotations,
 
   out <- list()
   need_cohen <- method %in% c("auto", "cohen")
-  need_fleiss <- method %in% c("auto", "fleiss")
+  need_krippendorff <- method %in% c("auto", "krippendorff")
 
   if (need_cohen) {
     model_ids <- unique(ann_df[[model_col]])
@@ -291,9 +291,9 @@ intercoder_reliability <- function(annotations,
     }
   }
 
-  if (need_fleiss) {
-    fleiss <- .fleiss_kappa(ann_df, label_levels, sample_col, model_col, label_col)
-    out$fleiss <- fleiss
+  if (need_krippendorff) {
+    kripp <- .krippendorff_alpha(ann_df, label_levels, sample_col, model_col, label_col)
+    out$krippendorff <- kripp
   }
 
   out
@@ -304,7 +304,7 @@ intercoder_reliability <- function(annotations,
 #' `validate()` is a convenience wrapper that runs both
 #' [compute_confusion_matrices()] and [intercoder_reliability()] so that a
 #' single call yields per-model confusion matrices (vs gold labels and
-#' pairwise) as well as Cohen/Fleiss kappa scores.
+#' pairwise) as well as Cohen's Kappa / Krippendorff's Alpha scores.
 #'
 #' @inheritParams compute_confusion_matrices
 #' @inheritParams intercoder_reliability
@@ -336,7 +336,7 @@ validate <- function(annotations,
                      model_col = "model_id",
                      label_col = "label",
                      truth_col = "truth",
-                     method = c("auto", "cohen", "fleiss"),
+                     method = c("auto", "cohen", "krippendorff"),
                      include_confusion = TRUE,
                      include_reliability = TRUE) {
   method <- match.arg(method)
@@ -909,23 +909,56 @@ annotation_sink_csv <- function(path, append = FALSE) {
   list(kappa = kappa, observed = p0, expected = pe)
 }
 
-.fleiss_kappa <- function(ann_df, levels, sample_col, model_col, label_col) {
+.krippendorff_alpha <- function(ann_df, levels, sample_col, model_col, label_col) {
   counts <- tapply(seq_len(nrow(ann_df)), ann_df[[sample_col]], function(idx) {
     table(factor(ann_df[[label_col]][idx], levels = levels))
   })
   counts_mat <- do.call(rbind, counts)
 
-  m <- unique(rowSums(counts_mat))
-  if (length(m) != 1L) {
-    warning("Samples have different numbers of annotations; Fleiss' Kappa assumes a constant number of raters.")
+  item_totals <- rowSums(counts_mat)
+  valid_items <- item_totals > 1
+  per_item <- rep(NA_real_, length(item_totals))
+  names(per_item) <- rownames(counts_mat)
+
+  Do <- NA_real_
+  if (any(valid_items)) {
+    valid_counts <- counts_mat[valid_items, , drop = FALSE]
+    n_i <- item_totals[valid_items]
+    numerators <- n_i^2 - rowSums(valid_counts^2)
+    denom <- sum(n_i * (n_i - 1))
+    if (denom > 0) {
+      Do <- sum(numerators) / denom
+      per_item[valid_items] <- 1 - (numerators / (n_i * (n_i - 1)))
+    }
+  } else {
+    valid_counts <- counts_mat[FALSE, , drop = FALSE]
+    n_i <- numeric()
   }
-  m <- m[1]
 
-  p_j <- colSums(counts_mat) / (nrow(counts_mat) * m)
-  P_i <- (rowSums(counts_mat^2) - m) / (m * (m - 1))
-  P_bar <- mean(P_i)
-  P_e_bar <- sum(p_j^2)
-  kappa <- if (abs(1 - P_e_bar) < .Machine$double.eps) NA_real_ else (P_bar - P_e_bar) / (1 - P_e_bar)
+  category_totals <- colSums(valid_counts)
+  total_assignments <- sum(category_totals)
+  De <- NA_real_
+  if (total_assignments > 1) {
+    exp_numer <- total_assignments^2 - sum(category_totals^2)
+    exp_denom <- total_assignments * (total_assignments - 1)
+    if (exp_denom > 0) {
+      De <- exp_numer / exp_denom
+    }
+  }
 
-  list(kappa = kappa, per_item = P_i, category_proportions = p_j)
+  alpha <- if (!is.na(Do) && !is.na(De) && abs(De) > .Machine$double.eps) {
+    1 - (Do / De)
+  } else {
+    NA_real_
+  }
+
+  categories <- colnames(counts_mat)
+  proportions <- if (total_assignments > 0) {
+    category_totals / total_assignments
+  } else {
+    rep(NA_real_, length(categories))
+  }
+  names(proportions) <- categories
+
+  list(alpha = alpha, per_item = per_item, category_proportions = proportions)
 }

@@ -22,7 +22,7 @@ Quick reference for the exported public API. Use `?function_name` inside R for f
 - `quick_llama_reset()` – clear cached model/context objects created by `quick_llama()`.
 - `explore()` – orchestrate multiple models over shared prompts and capture their annotations (long + wide tables); `prompts` can be a function, a ready-made character vector, or a template list (`annotation_task`, `coding_rules`, `examples`, `target_text`, ...).
 - `compute_confusion_matrices()` – derive per-model or pairwise confusion matrices from the annotation tables.
-- `intercoder_reliability()` – compute agreement metrics such as Cohen’s and Fleiss’ Kappa for model outputs.
+- `intercoder_reliability()` – compute agreement metrics such as Cohen’s Kappa and Krippendorff’s Alpha for model outputs.
 
 ## Documentation helpers
 - `document_start()` – begin logging metadata about subsequent localLLM calls to a text file.

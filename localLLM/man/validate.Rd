@@ -13,7 +13,7 @@ validate(
   model_col = "model_id",
   label_col = "label",
   truth_col = "truth",
-  method = c("auto", "cohen", "fleiss"),
+  method = c("auto", "cohen", "krippendorff"),
   include_confusion = TRUE,
   include_reliability = TRUE
 )
@@ -34,8 +34,8 @@ in the resulting tables.}
 \item{sample_col, model_col, label_col, truth_col}{Column names to use when
 `annotations` is a custom data frame.}
 
-\item{method}{One of `"auto"`, `"cohen"`, or `"fleiss"`. The `"auto"`
-setting computes both pairwise Cohen's Kappa and Fleiss' Kappa (when
+\item{method}{One of `"auto"`, `"cohen"`, or `"krippendorff"`. The `"auto"`
+setting computes both pairwise Cohen's Kappa and Krippendorff's Alpha (when
 applicable).}
 
 \item{include_confusion}{When `TRUE` (default) the confusion matrices section
@@ -54,7 +54,7 @@ A list containing up to two elements: `confusion` (the full result of
 `validate()` is a convenience wrapper that runs both
 [compute_confusion_matrices()] and [intercoder_reliability()] so that a
 single call yields per-model confusion matrices (vs gold labels and
-pairwise) as well as Cohen/Fleiss kappa scores.
+pairwise) as well as Cohen's Kappa / Krippendorff's Alpha scores.
 }
 \examples{
 annotations <- data.frame(

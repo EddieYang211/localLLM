@@ -413,8 +413,8 @@ print(report$confusion$pairwise$`llama32 vs deepseek`)
 # Inter-annotator agreement (Cohen's Kappa)
 print(report$reliability$cohen)
 
-# Fleiss' Kappa
-print(report$reliability$fleiss)
+# Krippendorff's Alpha
+print(report$reliability$krippendorff)
 ```
 
 For very large datasets you can stream each per-model chunk directly to disk by
@@ -477,7 +477,7 @@ res_custom <- explore(
 
 ---
 
-### Automatic Documentation
+### Automatic Documentation (*Available in the next CRAN release*)
 
 Use `document_start()`/`document_end()` to capture everything that happens between the two calls. The log records timestamps, model metadata (paths, decoding parameters, etc.), summaries of helpers such as `quick_llama()` or `explore()`, and now appends a SHA-256 hash so you can refer to or verify an entire run by a single fingerprint.
 
@@ -490,32 +490,27 @@ response <- quick_llama("Summarise the latest result.")
 document_end()
 ```
 
-#### Input/Output Hash Verification
+---
 
-All generation functions (`generate()`, `generate_parallel()`, `quick_llama()`, and `explore()`) compute SHA-256 hashes for both inputs and outputs by default. This enables reproducibility verification and collaborative replication:
+### Hardware Awareness & Safety Warnings (*Available in the next CRAN release*)
 
-```r
-# Hashes are printed to console and attached as attributes
-result <- quick_llama("What is the capital of France?")
-attr(result, "hashes")  # $input, $output
+localLLM performs a lightweight hardware probe whenever it attaches or loads a model
+so it can estimate RAM/VRAM headroom before heavy work begins. Inspect the cached
+profile with `hardware_profile()` (OS, RAM, CPU cores, GPUs). Model loading compares
+your request to that profile and prints a detailed warning—including RAM/VRAM
+estimates—when resources look insufficient. In interactive sessions you must confirm
+that warning (type `1`) before the model loads; non-interactive scripts abort to avoid
+crashing the machine.
 
-# For explore(), hashes are computed per model
-res <- explore(models = models, prompts = custom_prompts, hash = TRUE)
-attr(res, "hashes")  # data.frame with model_id, input_hash, output_hash
-```
+Context creation (`context_create()`) now follows the same pattern: oversized `n_ctx`
+or `n_seq_max` values trigger warnings and, in interactive sessions, an explicit
+confirmation prompt. Generation helpers (`generate()`, `generate_parallel()`,
+`quick_llama()`, and `explore()`) reuse those safeguards and also prevent parameter
+conflicts where `prompt_tokens + max_tokens` would exceed the available context window.
 
-Hashes include model identifiers, prompts, generation parameters, and outputs, allowing collaborators to verify they used identical configurations and obtained matching results. Set `hash = FALSE` to disable hash computation if not needed.
-
-### Hardware Awareness & Safety Warnings
-
-When localLLM attaches it performs a lightweight hardware probe so the package
-can warn before a model exhausts your machine's resources. Inspect the cached
-profile with `hardware_profile()` to see the detected OS, RAM, CPU cores, and
-any GPU VRAM. Model loading/context creation compares your request to this
-profile and emits a warning when RAM/VRAM looks insufficient. Leave the safety
-warnings enabled (default) to reduce RStudio crashes, or disable them with
-`options(localllm.safety_warnings = FALSE)` if you prefer to manage resources
-manually.
+Leave `options(localllm.safety_warnings = TRUE)` (default) enabled to benefit from
+these guards. Set it to `FALSE` only if you fully control resource usage and want to
+silence all hardware/parameter warnings.
 
 ---
 
@@ -662,6 +657,22 @@ If you have a compatible GPU (NVIDIA or Apple Metal), you can offload model laye
 # Offload as many layers as possible to the GPU for the fastest generation
 quick_llama("Tell me a joke", n_gpu_layers = 999)
 ```
+
+#### Input/Output Hash Verification (*Available in the next CRAN release*)
+
+All generation functions (`generate()`, `generate_parallel()`, `quick_llama()`, and `explore()`) compute SHA-256 hashes for both inputs and outputs by default. This enables reproducibility verification and collaborative replication:
+
+```r
+# Hashes are printed to console and attached as attributes
+result <- quick_llama("What is the capital of France?")
+attr(result, "hashes")  # $input, $output
+
+# For explore(), hashes are computed per model
+res <- explore(models = models, prompts = custom_prompts, hash = TRUE)
+attr(res, "hashes")  # data.frame with model_id, input_hash, output_hash
+```
+
+Hashes include model identifiers, prompts, generation parameters, and outputs, allowing collaborators to verify they used identical configurations and obtained matching results. Set `hash = FALSE` to disable hash computation if not needed.
 
 #### All Other Parameters
 

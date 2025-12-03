@@ -94,7 +94,7 @@ test_that("confusion matrices and reliability stats are returned", {
 
   rel <- intercoder_reliability(annotations, label_levels = c("A", "B"))
   expect_true("cohen" %in% names(rel))
-  expect_true("fleiss" %in% names(rel))
+  expect_true("krippendorff" %in% names(rel))
   expect_equal(ncol(rel$cohen), 5)
 })
 

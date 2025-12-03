@@ -394,7 +394,9 @@ generate <- function(context, prompt, max_tokens = 100L, top_k = 40L, top_p = 1.
 
   # Auto-tokenize the prompt
   tokens <- tokenize(model, prompt, add_special = TRUE)
-  .warn_if_prompt_near_limit(tokens, max_tokens, attr(context, "n_ctx"))
+
+  # Validate parameters before generation (will stop if conflict detected)
+  .validate_generation_params(tokens, max_tokens, attr(context, "n_ctx"))
 
   result <- .Call("c_r_generate",
                   context,
@@ -465,7 +467,14 @@ generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, 
   }
   
   prompts_chr <- as.character(prompts)
-  
+
+  # Validate each prompt's parameters before generation
+  n_ctx <- attr(context, "n_ctx")
+  for (i in seq_along(prompts_chr)) {
+    tokens <- tokenize(context, prompts_chr[[i]])
+    .validate_generation_params(tokens, max_tokens, n_ctx)
+  }
+
   result <- .Call("c_r_generate_parallel",
                   context,
                   prompts_chr,

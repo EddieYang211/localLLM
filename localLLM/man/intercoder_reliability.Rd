@@ -6,7 +6,7 @@
 \usage{
 intercoder_reliability(
   annotations,
-  method = c("auto", "cohen", "fleiss"),
+  method = c("auto", "cohen", "krippendorff"),
   label_levels = NULL,
   sample_col = "sample_id",
   model_col = "model_id",
@@ -17,8 +17,8 @@ intercoder_reliability(
 \item{annotations}{Output from [explore()] or a compatible data
 frame with at least `sample_id`, `model_id`, and `label` columns.}
 
-\item{method}{One of `"auto"`, `"cohen"`, or `"fleiss"`. The `"auto"`
-setting computes both pairwise Cohen's Kappa and Fleiss' Kappa (when
+\item{method}{One of `"auto"`, `"cohen"`, or `"krippendorff"`. The `"auto"`
+setting computes both pairwise Cohen's Kappa and Krippendorff's Alpha (when
 applicable).}
 
 \item{label_levels}{Optional factor levels to enforce a consistent ordering
@@ -35,7 +35,7 @@ user-provided data frame.}
 }
 \value{
 A list containing `cohen` (data frame of pairwise kappas) and/or
-  `fleiss` (overall statistic with per-item agreement scores).
+  `krippendorff` (overall alpha statistic with per-item agreement scores).
 }
 \description{
 Intercoder reliability for LLM annotations
