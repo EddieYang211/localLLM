@@ -1,0 +1,95 @@
+url: https://eddieyang211.github.io/localLLM/
+
+template:
+  bootstrap: 5
+  bootswatch: flatly
+
+home:
+  title: localLLM - Local Large Language Models in R
+  description: >
+    Run LLMs locally using llama.cpp backend with comprehensive
+    support for text generation, annotation, and reliability metrics.
+
+reference:
+  - title: Package Overview
+    contents:
+      - localLLM-package
+
+  - title: Quick Start
+    desc: Simple functions to get started quickly
+    contents:
+      - quick_llama
+      - quick_llama_reset
+
+  - title: Core Functions
+    desc: Main text generation and annotation functions
+    contents:
+      - generate
+      - generate_parallel
+      - explore
+
+  - title: Model Management
+    desc: Functions for loading and managing models
+    contents:
+      - model_load
+      - context_create
+      - download_model
+      - list_cached_models
+      - list_ollama_models
+
+  - title: Backend Setup
+    desc: Installation and backend management
+    contents:
+      - install_localLLM
+      - backend_init
+      - backend_free
+      - lib_is_installed
+      - get_lib_path
+
+  - title: Tokenization
+    desc: Token manipulation functions
+    contents:
+      - tokenize
+      - detokenize
+      - tokenize_test
+
+  - title: Chat Templates
+    desc: Functions for formatting chat conversations
+    contents:
+      - apply_chat_template
+      - smart_chat_template
+      - apply_gemma_chat_template
+
+  - title: Reliability & Validation
+    desc: Annotation reliability and validation tools
+    contents:
+      - intercoder_reliability
+      - compute_confusion_matrices
+      - validate
+
+  - title: Utilities
+    desc: Helper functions and utilities
+    contents:
+      - annotation_sink_csv
+      - hardware_profile
+      - get_model_cache_dir
+      - set_hf_token
+      - document_start
+      - document_end
+
+  - title: Data
+    desc: Example datasets
+    contents:
+      - ag_news_sample
+
+navbar:
+  structure:
+    left:  [intro, reference, news]
+    right: [github]
+  components:
+    reference:
+      text: Reference
+      href: reference/index.html
+    news:
+      text: Changelog
+      href: news/index.html
