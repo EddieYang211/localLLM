@@ -62,8 +62,8 @@ long-format output (useful for audits). Defaults to `FALSE`.}
 
 \item{hash}{When `TRUE` (default), computes SHA-256 hashes for each model's prompts and
 resulting labels so replication collaborators can verify inputs and
-outputs. Hashes are printed per model and attached to the returned list via
-the `"hashes"` attribute.}
+outputs. Hashes are attached to the returned list via the `"hashes"`
+attribute.}
 }
 \value{
 A list with elements `annotations` (long table) and `matrix` (wide

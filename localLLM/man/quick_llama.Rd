@@ -42,8 +42,8 @@ quick_llama(
 
 \item{verbosity}{Backend logging verbosity (default: 1L). Higher values show more
 detail: \code{0} prints only errors, \code{1} adds warnings, \code{2}
-includes informational messages, and \code{3} enables the most verbose debug
-output.}
+includes informational messages, \code{3} enables the most verbose debug
+output, and negative values suppress logging entirely.}
 
 \item{max_tokens}{Maximum tokens to generate (default: 100)}
 
@@ -77,7 +77,7 @@ Defaults to \code{TRUE}.}
 
 \item{hash}{When `TRUE` (default), compute SHA-256 hashes for the prompts fed into the
 backend and the corresponding outputs. Hashes are attached via the
-`"hashes"` attribute and printed to the console.}
+`"hashes"` attribute for later inspection.}
 
 \item{...}{Additional parameters passed to generate() or generate_parallel()}
 }

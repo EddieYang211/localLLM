@@ -39,8 +39,8 @@
 #'   long-format output (useful for audits). Defaults to `FALSE`.
 #' @param hash When `TRUE` (default), computes SHA-256 hashes for each model's prompts and
 #'   resulting labels so replication collaborators can verify inputs and
-#'   outputs. Hashes are printed per model and attached to the returned list via
-#'   the `"hashes"` attribute.
+#'   outputs. Hashes are attached to the returned list via the `"hashes"`
+#'   attribute.
 #' @return A list with elements `annotations` (long table) and `matrix` (wide
 #'   annotation matrix). When `sink` is supplied the `annotations` and `matrix`
 #'   entries are set to `NULL` to avoid duplicating the streamed output.
@@ -136,8 +136,6 @@ explore <- function(models,
         input_hash = run_info$input_hash,
         output_hash = run_info$output_hash
       )
-      message(sprintf("[explore:%s] input hash: %s | output hash: %s",
-                      spec$id, run_info$input_hash, run_info$output_hash))
       .document_record_event("explore_model_hash", list(
         model_id = spec$id,
         input_hash = run_info$input_hash,
@@ -910,55 +908,72 @@ annotation_sink_csv <- function(path, append = FALSE) {
 }
 
 .krippendorff_alpha <- function(ann_df, levels, sample_col, model_col, label_col) {
-  counts <- tapply(seq_len(nrow(ann_df)), ann_df[[sample_col]], function(idx) {
+  counts_list <- tapply(seq_len(nrow(ann_df)), ann_df[[sample_col]], function(idx) {
     table(factor(ann_df[[label_col]][idx], levels = levels))
-  })
-  counts_mat <- do.call(rbind, counts)
+  }, simplify = FALSE)
+
+  if (length(counts_list) == 0) {
+    return(list(alpha = NA_real_, per_item = numeric(), category_proportions = rep(NA_real_, length(levels))))
+  }
+
+  counts_mat <- do.call(rbind, counts_list)
+  rownames(counts_mat) <- names(counts_list)
 
   item_totals <- rowSums(counts_mat)
-  valid_items <- item_totals > 1
   per_item <- rep(NA_real_, length(item_totals))
   names(per_item) <- rownames(counts_mat)
 
-  Do <- NA_real_
-  if (any(valid_items)) {
-    valid_counts <- counts_mat[valid_items, , drop = FALSE]
-    n_i <- item_totals[valid_items]
-    numerators <- n_i^2 - rowSums(valid_counts^2)
-    denom <- sum(n_i * (n_i - 1))
-    if (denom > 0) {
-      Do <- sum(numerators) / denom
-      per_item[valid_items] <- 1 - (numerators / (n_i * (n_i - 1)))
+  coincidence <- matrix(0, nrow = length(levels), ncol = length(levels),
+                        dimnames = list(levels, levels))
+  has_missing <- any(is.na(ann_df[[label_col]]))
+
+  for (i in seq_len(nrow(counts_mat))) {
+    counts_vec <- as.numeric(counts_mat[i, ])
+    n_i <- sum(counts_vec)
+    if (n_i <= 1) {
+      next
     }
-  } else {
-    valid_counts <- counts_mat[FALSE, , drop = FALSE]
-    n_i <- numeric()
+
+    denom <- n_i * (n_i - 1)
+    per_item[i] <- if (denom > 0) {
+      1 - ((n_i^2 - sum(counts_vec^2)) / denom)
+    } else {
+      NA_real_
+    }
+
+    mc <- if (has_missing) n_i - 1 else 1
+    item_matrix <- (counts_vec %o% counts_vec) / mc
+    diag(item_matrix) <- counts_vec * (counts_vec - 1) / mc
+    coincidence <- coincidence + item_matrix
   }
 
-  category_totals <- colSums(valid_counts)
+  n_match <- sum(coincidence)
+  observed <- sum(coincidence[upper.tri(coincidence, diag = FALSE)])
+  nc <- rowSums(coincidence)
+  expected <- 0
+  if (length(nc) >= 2) {
+    for (r in seq_along(nc)) {
+      if (nc[r] == 0) next
+      if (r == 1) next
+      expected <- expected + sum(nc[r] * nc[seq_len(r - 1)])
+    }
+  }
+
+  alpha <- NA_real_
+  if (length(levels) < 2) {
+    alpha <- 1
+  } else if (expected > 0 && n_match > 1) {
+    alpha <- 1 - ((n_match - 1) * observed) / expected
+  }
+
+  category_totals <- colSums(counts_mat)
   total_assignments <- sum(category_totals)
-  De <- NA_real_
-  if (total_assignments > 1) {
-    exp_numer <- total_assignments^2 - sum(category_totals^2)
-    exp_denom <- total_assignments * (total_assignments - 1)
-    if (exp_denom > 0) {
-      De <- exp_numer / exp_denom
-    }
-  }
-
-  alpha <- if (!is.na(Do) && !is.na(De) && abs(De) > .Machine$double.eps) {
-    1 - (Do / De)
-  } else {
-    NA_real_
-  }
-
-  categories <- colnames(counts_mat)
   proportions <- if (total_assignments > 0) {
     category_totals / total_assignments
   } else {
-    rep(NA_real_, length(categories))
+    rep(NA_real_, length(levels))
   }
-  names(proportions) <- categories
+  names(proportions) <- colnames(counts_mat)
 
   list(alpha = alpha, per_item = per_item, category_proportions = proportions)
 }

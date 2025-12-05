@@ -43,8 +43,6 @@
 
 .hash_attach_metadata <- function(result, input_hash, output_hash, event) {
   attr(result, "hashes") <- list(input = input_hash, output = output_hash)
-  message(sprintf("%s input hash: %s | output hash: %s",
-                  event, input_hash, output_hash))
   .document_record_event(paste0(event, "_hash"), list(
     input_hash = input_hash,
     output_hash = output_hash

@@ -36,7 +36,7 @@
 #'   Defaults to \code{TRUE}.
 #' @param hash When `TRUE` (default), compute SHA-256 hashes for the prompts fed into the
 #'   backend and the corresponding outputs. Hashes are attached via the
-#'   `"hashes"` attribute and printed to the console.
+#'   `"hashes"` attribute for later inspection.
 #' @param ... Additional parameters passed to generate() or generate_parallel()
 #'
 #' @return Character string (single prompt) or named list (multiple prompts)

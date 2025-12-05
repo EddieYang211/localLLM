@@ -40,8 +40,8 @@ generate(
 \item{clean}{If TRUE, strip common chat-template control tokens from the generated text (default: FALSE).}
 
 \item{hash}{When `TRUE` (default), computes SHA-256 hashes for the provided prompt and
-the resulting output. Hashes are attached via the `"hashes"` attribute and
-printed to the console.}
+the resulting output. Hashes are attached via the `"hashes"` attribute for
+later inspection.}
 }
 \value{
 Character string containing the generated text

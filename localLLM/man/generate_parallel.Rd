@@ -44,8 +44,8 @@ completion status while generations are running (default: FALSE).}
 \item{clean}{If TRUE, remove common chat-template control tokens from each generated text (default: FALSE).}
 
 \item{hash}{When `TRUE` (default), computes SHA-256 hashes for the supplied prompts and
-generated outputs. Hashes are attached via the `"hashes"` attribute and
-printed to the console.}
+generated outputs. Hashes are attached via the `"hashes"` attribute for
+later inspection.}
 }
 \value{
 Character vector of generated texts

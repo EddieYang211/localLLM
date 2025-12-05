@@ -42,6 +42,11 @@ static thread_local void* original_log_user_data = nullptr;
 static void verbosity_log_callback(ggml_log_level level, const char* text, void* user_data) {
     int verbosity = current_verbosity;
     
+    // Silent mode: suppress all logging for negative values
+    if (verbosity < 0) {
+        return;
+    }
+
     // Filter messages based on verbosity level (3=most, 2,1,0=decreasing)
     bool should_log = false;
     switch (verbosity) {

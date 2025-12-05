@@ -348,8 +348,8 @@ apply_chat_template <- function(model, messages, template = NULL, add_assistant 
 #' @param seed Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output
 #' @param clean If TRUE, strip common chat-template control tokens from the generated text (default: FALSE).
 #' @param hash When `TRUE` (default), computes SHA-256 hashes for the provided prompt and
-#'   the resulting output. Hashes are attached via the `"hashes"` attribute and
-#'   printed to the console.
+#'   the resulting output. Hashes are attached via the `"hashes"` attribute for
+#'   later inspection.
 #' @return Character string containing the generated text
 #' @export
 #' @examples
@@ -454,8 +454,8 @@ generate <- function(context, prompt, max_tokens = 100L, top_k = 40L, top_p = 1.
 #'   completion status while generations are running (default: FALSE).
 #' @param clean If TRUE, remove common chat-template control tokens from each generated text (default: FALSE).
 #' @param hash When `TRUE` (default), computes SHA-256 hashes for the supplied prompts and
-#'   generated outputs. Hashes are attached via the `"hashes"` attribute and
-#'   printed to the console.
+#'   generated outputs. Hashes are attached via the `"hashes"` attribute for
+#'   later inspection.
 #' @return Character vector of generated texts
 #' @export
 generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, top_p = 1.0,
@@ -470,8 +470,13 @@ generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, 
 
   # Validate each prompt's parameters before generation
   n_ctx <- attr(context, "n_ctx")
+  model <- attr(context, "model")
+  if (is.null(model)) {
+    stop("Context is missing its associated model; please recreate it via context_create().",
+         call. = FALSE)
+  }
   for (i in seq_along(prompts_chr)) {
-    tokens <- tokenize(context, prompts_chr[[i]])
+    tokens <- tokenize(model, prompts_chr[[i]])
     .validate_generation_params(tokens, max_tokens, n_ctx)
   }
 

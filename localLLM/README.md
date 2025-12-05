@@ -663,7 +663,7 @@ quick_llama("Tell me a joke", n_gpu_layers = 999)
 All generation functions (`generate()`, `generate_parallel()`, `quick_llama()`, and `explore()`) compute SHA-256 hashes for both inputs and outputs by default. This enables reproducibility verification and collaborative replication:
 
 ```r
-# Hashes are printed to console and attached as attributes
+# Hashes are attached as attributes
 result <- quick_llama("What is the capital of France?")
 attr(result, "hashes")  # $input, $output
 
@@ -681,7 +681,7 @@ The generation functions provide full control over the `llama.cpp` backend. Some
 -   **`system_prompt` (character)**: Sets the initial instruction for the model to define its role or persona (default: `"You are a helpful assistant."`).
 -   **`n_threads` (integer)**: The number of CPU threads to use for processing. Defaults to auto-detection for optimal performance.
 -   **`seed` (integer)**: Random seed for reproducible generation (default: `1234`). Setting a seed ensures you get the exact same output for the same prompt every time.
--   **`verbosity` (integer)**: Controls the amount of backend logging information printed to the console (3=max, 0=errors only).
+-   **`verbosity` (integer)**: Controls backend logging (3=max … 0=errors only, use a negative value to suppress all output).
 
 ```r
 # An example combining multiple custom settings for a reproducible poem
