@@ -663,11 +663,15 @@ annotation_sink_csv <- function(path, append = FALSE) {
     if (!is.null(spec$model)) {
       stop(sprintf("Model '%s' must declare 'model_path' instead of 'model'", spec$id), call. = FALSE)
     }
-    if (is.null(spec$model_path)) {
-      stop(sprintf("Model '%s' is missing the required 'model_path' entry", spec$id), call. = FALSE)
-    }
-    if (!is.character(spec$model_path) || length(spec$model_path) < 1L || !nzchar(trimws(spec$model_path[[1L]]))) {
-      stop(sprintf("Model '%s' must supply a non-empty character 'model_path'", spec$id), call. = FALSE)
+    # Only require model_path if no predictor function is provided
+    has_predictor <- is.function(spec$predictor)
+    if (!has_predictor) {
+      if (is.null(spec$model_path)) {
+        stop(sprintf("Model '%s' is missing the required 'model_path' entry", spec$id), call. = FALSE)
+      }
+      if (!is.character(spec$model_path) || length(spec$model_path) < 1L || !nzchar(trimws(spec$model_path[[1L]]))) {
+        stop(sprintf("Model '%s' must supply a non-empty character 'model_path'", spec$id), call. = FALSE)
+      }
     }
     spec$model <- NULL
     spec$instruction <- spec$instruction %||% instruction
@@ -676,6 +680,7 @@ annotation_sink_csv <- function(path, append = FALSE) {
 }
 
 .spec_model_source <- function(spec) {
+  if (is.null(spec$model_path)) return(NA_character_)
   trimws(as.character(spec$model_path[[1L]]))
 }
 
