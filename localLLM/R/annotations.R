@@ -8,7 +8,7 @@
 #'
 #' @param models Model definitions. Accepts either a named character vector
 #'   (names become `model_id`s) or a list where each element is a list with at
-#'   least `id` and `model` (path/URL). Each model entry can optionally specify
+#'   least `id` and `model_path` (path/URL). Each model entry can optionally specify
 #'   `instruction`, `generation` parameters, custom `prompts`, or a
 #'   `predictor` function for mock/testing scenarios.
 #' @param instruction Default task instruction inserted into `spec` whenever a
@@ -647,7 +647,7 @@ annotation_sink_csv <- function(path, append = FALSE) {
     ids <- names(models)
     models <- as.list(models)
     specs <- Map(function(path, id, idx) {
-      list(id = id %||% sprintf("model_%d", idx), model = path)
+      list(id = id %||% sprintf("model_%d", idx), model_path = path)
     }, models, ids, seq_along(models))
   } else if (is.list(models)) {
     specs <- models
@@ -660,15 +660,29 @@ annotation_sink_csv <- function(path, append = FALSE) {
     if (is.null(spec$id)) {
       spec$id <- sprintf("model_%d", i)
     }
+    if (!is.null(spec$model)) {
+      stop(sprintf("Model '%s' must declare 'model_path' instead of 'model'", spec$id), call. = FALSE)
+    }
+    if (is.null(spec$model_path)) {
+      stop(sprintf("Model '%s' is missing the required 'model_path' entry", spec$id), call. = FALSE)
+    }
+    if (!is.character(spec$model_path) || length(spec$model_path) < 1L || !nzchar(trimws(spec$model_path[[1L]]))) {
+      stop(sprintf("Model '%s' must supply a non-empty character 'model_path'", spec$id), call. = FALSE)
+    }
+    spec$model <- NULL
     spec$instruction <- spec$instruction %||% instruction
     spec
   })
 }
 
+.spec_model_source <- function(spec) {
+  trimws(as.character(spec$model_path[[1L]]))
+}
+
 .explore_spec_summary <- function(spec) {
   list(
     id = spec$id,
-    model = spec$model %||% NA_character_,
+    model = .spec_model_source(spec) %||% NA_character_,
     has_predictor = isTRUE(is.function(spec$predictor)),
     has_custom_prompts = !is.null(spec$prompts),
     generation = .explore_generation_summary(spec$generation)
@@ -695,12 +709,13 @@ annotation_sink_csv <- function(path, append = FALSE) {
   outputs <- NULL
   input_hash <- NULL
   output_hash <- NULL
+  model_source <- .spec_model_source(spec)
 
   if (isTRUE(hash)) {
     input_payload <- list(
       type = "explore",
       model_id = spec$id,
-      model_source = .hash_normalise_model_source(spec$model, fallback = spec$id),
+      model_source = .hash_normalise_model_source(model_source, fallback = spec$id),
       prompts = prompts,
       generation = .explore_generation_summary(spec$generation),
       engine = engine,
@@ -745,31 +760,34 @@ annotation_sink_csv <- function(path, append = FALSE) {
     return(get(cache_key, envir = model_cache, inherits = FALSE))
   }
 
-  if (is.null(spec$model)) {
-    stop(sprintf("Model '%s' is missing the 'model' path or URL", spec$id), call. = FALSE)
+  model_source <- .spec_model_source(spec)
+  if (is.null(model_source) || !nzchar(model_source)) {
+    stop(sprintf("Model '%s' is missing the 'model_path' value", spec$id), call. = FALSE)
   }
 
   n_threads <- spec$n_threads %||% max(1L, parallel::detectCores() - 1L)
   n_ctx <- spec$n_ctx %||% 2048L
   n_gpu_layers <- spec$n_gpu_layers %||% 0L
-  verbosity <- spec$verbosity %||% 1L
+  verbosity <- as.integer(spec$verbosity %||% 1L)
   n_seq_max <- spec$n_seq_max %||% 1L
+  quiet_state <- .localllm_set_quiet(verbosity < 0L)
+  on.exit(.localllm_restore_quiet(quiet_state), add = TRUE)
 
   if (isTRUE(progress)) {
-    message(sprintf("[%s] Loading model...", spec$id))
+    .localllm_message(sprintf("[%s] Loading model...", spec$id))
   }
-  model_obj <- model_load(spec$model,
+  model_obj <- model_load(model_source,
                           n_gpu_layers = as.integer(n_gpu_layers),
                           use_mmap = spec$use_mmap %||% TRUE,
                           use_mlock = spec$use_mlock %||% FALSE,
                           show_progress = isTRUE(progress),
                           check_memory = spec$check_memory %||% TRUE,
-                          verbosity = as.integer(verbosity))
+                          verbosity = verbosity)
   ctx <- context_create(model_obj,
                         n_ctx = as.integer(n_ctx),
                         n_threads = as.integer(n_threads),
                         n_seq_max = as.integer(n_seq_max),
-                        verbosity = as.integer(verbosity))
+                        verbosity = verbosity)
 
   handles <- list(model = model_obj, context = ctx)
 

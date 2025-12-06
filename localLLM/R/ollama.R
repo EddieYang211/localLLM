@@ -34,7 +34,7 @@ list_ollama_models <- function(min_size_mb = 50, verify = TRUE) {
   roots <- roots[dir.exists(roots)]
 
   if (length(roots) == 0L) {
-    message("No Ollama installation directories found.")
+    .localllm_message("No Ollama installation directories found.")
     return(.empty_ollama_df())
   }
 
@@ -52,7 +52,7 @@ list_ollama_models <- function(min_size_mb = 50, verify = TRUE) {
   }
 
   if (length(models) == 0L) {
-    message("No Ollama GGUF models found in: ", paste(roots, collapse = ", "))
+    .localllm_message("No Ollama GGUF models found in: ", paste(roots, collapse = ", "))
     return(.empty_ollama_df())
   }
 
@@ -316,7 +316,7 @@ list_ollama_models <- function(min_size_mb = 50, verify = TRUE) {
                           decreasing = TRUE)]
 
   for (idx in seq_along(ordered)) {
-    message(sprintf("[%d] %s (%.1f MB) - %s", idx, ordered[[idx]]$name,
+    .localllm_message(sprintf("[%d] %s (%.1f MB) - %s", idx, ordered[[idx]]$name,
                     ordered[[idx]]$size_mb, ordered[[idx]]$path))
   }
 
@@ -324,7 +324,7 @@ list_ollama_models <- function(min_size_mb = 50, verify = TRUE) {
   if (!is.null(selection_option)) {
     idx <- suppressWarnings(as.integer(selection_option))
     if (!is.na(idx) && idx >= 1 && idx <= length(ordered)) {
-      message("Selected ", context, " model via option ",
+      .localllm_message("Selected ", context, " model via option ",
               "localllm.cache_selection = ", idx)
       return(ordered[[idx]])
     }
@@ -347,7 +347,7 @@ list_ollama_models <- function(min_size_mb = 50, verify = TRUE) {
     answer <- readline(sprintf("Enter the number of the %s model to use ",
                                "(press Enter to cancel): ", tolower(context)))
     if (identical(answer, "")) {
-      message("Selection cancelled. Provide a more specific model name or ",
+      .localllm_message("Selection cancelled. Provide a more specific model name or ",
               "sha256 prefix.")
       return(NULL)
     }
@@ -355,7 +355,7 @@ list_ollama_models <- function(min_size_mb = 50, verify = TRUE) {
     if (!is.na(idx) && idx >= 1 && idx <= length(ordered)) {
       return(ordered[[idx]])
     }
-    message(sprintf("Invalid selection. Please enter a number between 1 ",
+    .localllm_message(sprintf("Invalid selection. Please enter a number between 1 ",
                     "and %d.", length(ordered)))
   }
 }
@@ -369,7 +369,7 @@ list_ollama_models <- function(min_size_mb = 50, verify = TRUE) {
   ordered <- models_df[ordered_idx, , drop = FALSE]
 
   for (i in seq_len(nrow(ordered))) {
-    message(sprintf("[%d] %s (%.1f MB) - %s", i, ordered$name[i],
+    .localllm_message(sprintf("[%d] %s (%.1f MB) - %s", i, ordered$name[i],
                     ordered$size_mb[i], ordered$path[i]))
   }
 
@@ -377,7 +377,7 @@ list_ollama_models <- function(min_size_mb = 50, verify = TRUE) {
   if (!is.null(selection_option)) {
     idx <- suppressWarnings(as.integer(selection_option))
     if (!is.na(idx) && idx >= 1 && idx <= nrow(ordered)) {
-      message("Selected ", context, " model via option ",
+      .localllm_message("Selected ", context, " model via option ",
               "localllm.cache_selection = ", idx)
       return(ordered_idx[idx])
     }
@@ -400,7 +400,7 @@ list_ollama_models <- function(min_size_mb = 50, verify = TRUE) {
     answer <- readline(sprintf("Enter the number of the %s model to use ",
                                "(press Enter to cancel): ", tolower(context)))
     if (identical(answer, "")) {
-      message("Selection cancelled. Provide a more specific model name or ",
+      .localllm_message("Selection cancelled. Provide a more specific model name or ",
               "sha256 prefix.")
       return(NULL)
     }
@@ -408,7 +408,7 @@ list_ollama_models <- function(min_size_mb = 50, verify = TRUE) {
     if (!is.na(idx) && idx >= 1 && idx <= nrow(ordered)) {
       return(ordered_idx[idx])
     }
-    message(sprintf("Invalid selection. Please enter a number between 1 ",
+    .localllm_message(sprintf("Invalid selection. Please enter a number between 1 ",
                     "and %d.", nrow(ordered)))
   }
 }

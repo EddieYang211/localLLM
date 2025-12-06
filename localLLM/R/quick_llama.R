@@ -2,6 +2,27 @@
 
 # Package-level globals for caching
 .quick_llama_env <- new.env(parent = emptyenv())
+.quick_llama_env$suppress_messages <- FALSE
+
+# Keep console quiet when verbosity < 0
+.localllm_message <- function(...) {
+  if (!isTRUE(.quick_llama_env$suppress_messages)) {
+    message(...)
+  }
+}
+
+# Track and restore quiet-mode state
+.localllm_set_quiet <- function(quiet) {
+  previous <- .quick_llama_env$suppress_messages
+  if (isTRUE(quiet)) {
+    .quick_llama_env$suppress_messages <- TRUE
+  }
+  previous
+}
+
+.localllm_restore_quiet <- function(previous) {
+  .quick_llama_env$suppress_messages <- isTRUE(previous)
+}
 
 #' Quick LLaMA Inference
 #'
@@ -93,6 +114,9 @@ quick_llama <- function(prompt,
                         clean = TRUE,
                         hash = TRUE,
                         ...) {
+  verbosity <- as.integer(verbosity)
+  previous_quiet <- .localllm_set_quiet(verbosity < 0L)
+  on.exit(.localllm_restore_quiet(previous_quiet), add = TRUE)
   
   # Validate inputs
   if (missing(prompt) || is.null(prompt) || length(prompt) == 0) {
@@ -149,9 +173,9 @@ quick_llama <- function(prompt,
   }
   
   # Debug: check EOS token (optional)
-  if (verbosity <= 1L) {
+  if (verbosity <= 1L && !isTRUE(.quick_llama_env$suppress_messages)) {
     eos_token <- tokenize(.quick_llama_env$model, "", add_special = FALSE)
-    message("Model EOS token info available for debugging")
+    .localllm_message("Model EOS token info available for debugging")
   }
   
   # Generate text
@@ -270,6 +294,7 @@ quick_llama_reset <- function() {
   if (exists("model", envir = .quick_llama_env)) {
     rm(list = ls(envir = .quick_llama_env), envir = .quick_llama_env)
   }
+  .quick_llama_env$suppress_messages <- FALSE
   message("quick_llama state reset")
   invisible(NULL)
 }
@@ -350,13 +375,13 @@ quick_llama_reset <- function() {
 .ensure_quick_llama_ready <- function() {
   # Check if backend library is installed
   if (!lib_is_installed()) {
-    message("Backend library not found. Installing...")
+    .localllm_message("Backend library not found. Installing...")
     install_localLLM()
   }
   
   # Initialize backend if not already done
   if (!.is_backend_loaded()) {
-    message("Initializing backend...")
+    .localllm_message("Initializing backend...")
     backend_init()
   }
 }
@@ -371,6 +396,8 @@ quick_llama_reset <- function() {
 .ensure_model_loaded <- function(model_path, n_gpu_layers, n_ctx, n_threads, verbosity = 1L) {
   # Check if we have a cached model and context for this configuration
   cache_key <- paste0(model_path, "_", n_gpu_layers, "_", n_ctx, "_", n_threads, "_", verbosity)
+  quiet_state <- .localllm_set_quiet(verbosity < 0L)
+  on.exit(.localllm_restore_quiet(quiet_state), add = TRUE)
   
   if (exists("cache_key", envir = .quick_llama_env) && 
       identical(.quick_llama_env$cache_key, cache_key) &&
@@ -381,11 +408,11 @@ quick_llama_reset <- function() {
   }
   
   # Load model
-  message("Loading model...")
+  .localllm_message("Loading model...")
   model_obj <- model_load(model_path, n_gpu_layers = n_gpu_layers, show_progress = TRUE, verbosity = verbosity)
   
   # Create context
-  message("Creating context...")
+  .localllm_message("Creating context...")
   context_obj <- context_create(model_obj, n_ctx = n_ctx, n_threads = n_threads, verbosity = verbosity)
   
   # Cache the objects
@@ -393,7 +420,7 @@ quick_llama_reset <- function() {
   .quick_llama_env$context <- context_obj
   .quick_llama_env$cache_key <- cache_key
   
-  message("Model and context ready!")
+  .localllm_message("Model and context ready!")
 }
 
 #' Generate text for single prompt
@@ -413,7 +440,7 @@ quick_llama_reset <- function() {
   
   context <- .quick_llama_env$context
   # Generate text (auto-tokenization is now handled by generate())
-  message("Generating...")
+  .localllm_message("Generating...")
   result <- generate(context, prompt,
                      max_tokens = max_tokens,
                      top_k = top_k,
@@ -445,7 +472,7 @@ quick_llama_reset <- function() {
   
   context <- .quick_llama_env$context
   
-  message("Generating ", length(prompts), " responses...")
+  .localllm_message("Generating ", length(prompts), " responses...")
   
   # Use parallel generation for better performance (streaming flag available for future use)
   results <- generate_parallel(context, prompts,

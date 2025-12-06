@@ -81,16 +81,24 @@ static void verbosity_log_callback(ggml_log_level level, const char* text, void*
 // Set verbosity for logging
 static void set_log_verbosity(int verbosity) {
     current_verbosity = verbosity;
-    
+
     // Store original callback if not already stored
     if (original_log_callback == nullptr) {
         // Note: We can't easily get the current callback, so we'll assume default behavior
         original_log_callback = nullptr; // Will use default stderr output
         original_log_user_data = nullptr;
     }
-    
-    // Set our custom callback
-    llama_log_set(verbosity_log_callback, nullptr);
+
+    // New: Handle negative verbosity with a silent callback
+    if (verbosity < 0) {
+        // Set a callback that does nothing - completely silent
+        llama_log_set([](ggml_log_level level, const char* text, void* user_data) {
+            // Do nothing - complete silence
+        }, nullptr);
+    } else {
+        // Set our custom callback for filtering
+        llama_log_set(verbosity_log_callback, nullptr);
+    }
 }
 
 // Restore original logging

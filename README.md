@@ -160,7 +160,7 @@ LLMs are trained to respond to specific formats that include roles (like "system
 # Using a large number for n_gpu_layers offloads as many layers as possible 
 # to GPU for faster computing.
 model <- model_load(
-  model = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
+  model_path = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
   n_gpu_layers = 999
 )
 
@@ -237,7 +237,7 @@ ag_news_sample$LLM_result <- NA
 
 # 1. Load the model once
 model <- model_load(
-  model = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
+  model_path = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
   n_gpu_layers = 99
 )
 
@@ -342,23 +342,26 @@ The example below demonstrates comparing three LLMs on a news classification tas
 # Load sample dataset
 data("ag_news_sample", package = "localLLM")
 
+# Store your Hugging Face's access token for this session
+set_hf_token('hf_your_token_here')
+
 # Define three models for comparison
 models <- list(
   list(
     id = "llama32",
-    model = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",  # Package default (auto-cached)
+    model_path = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",  # Package default (auto-cached)
     n_gpu_layers = 999,
     generation = list(max_tokens = 15, seed = 92092)
   ),
   list(
     id = "deepseek",
-    model = "ollama:deepseek-r1:8b",  # Requires Ollama installation
+    model_path = "ollama:deepseek-r1:8b",  # Requires Ollama installation
     n_gpu_layers = 999,
     generation = list(max_tokens = 15, seed = 92092)
   ),
   list(
     id = "gemma12b",
-    model = "gemma-3-12b-it-q4_0.gguf",  # Requires download from HuggingFace
+    model_path = "https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-gguf/resolve/main/gemma-3-12b-it-q4_0.gguf",  # Requires download from HuggingFace
     n_gpu_layers = 999,
     generation = list(max_tokens = 15, seed = 92092)
   )

@@ -90,6 +90,9 @@ model_load <- function(model_path, cache_dir = NULL, n_gpu_layers = 0L, use_mmap
                        use_mlock = FALSE, show_progress = TRUE, force_redownload = FALSE, 
                        verify_integrity = TRUE, check_memory = TRUE, hf_token = NULL, verbosity = 1L) {
   .ensure_backend_loaded()
+  verbosity <- as.integer(verbosity)
+  quiet_state <- .localllm_set_quiet(verbosity < 0L)
+  on.exit(.localllm_restore_quiet(quiet_state), add = TRUE)
   
   # Resolve model path (download if needed)
   resolved_path <- .resolve_model_path(model_path, cache_dir, show_progress, 
@@ -110,7 +113,7 @@ model_load <- function(model_path, cache_dir = NULL, n_gpu_layers = 0L, use_mmap
                      as.logical(use_mmap),
                      as.logical(use_mlock),
                      as.logical(check_memory),
-                     as.integer(verbosity))
+                     verbosity)
 
   attr(model_ptr, "model_path") <- resolved_path
   attr(model_ptr, "model_size_bytes") <- suppressWarnings(file.info(resolved_path)$size)
@@ -180,13 +183,16 @@ context_create <- function(model, n_ctx = 2048L, n_threads = 4L, n_seq_max = 1L,
   if (!inherits(model, "localllm_model")) {
     stop("Expected a localllm_model object", call. = FALSE)
   }
+  verbosity <- as.integer(verbosity)
+  quiet_state <- .localllm_set_quiet(verbosity < 0L)
+  on.exit(.localllm_restore_quiet(quiet_state), add = TRUE)
 
   ctx <- .Call("c_r_context_create",
                model,
                as.integer(n_ctx),
                as.integer(n_threads),
                as.integer(n_seq_max),
-               as.integer(verbosity))
+               verbosity)
 
   # Store model reference in context for auto-tokenization support in generate()
   attr(ctx, "model") <- model
@@ -575,8 +581,8 @@ download_model <- function(model_url, output_path = NULL, show_progress = TRUE,
     dir.create(output_dir, recursive = TRUE)
   }
   
-  message("Downloading model from: ", model_url)
-  message("Saving to: ", output_path)
+  .localllm_message("Downloading model from: ", model_url)
+  .localllm_message("Saving to: ", output_path)
   
   # Download with retry mechanism
   .download_with_retry(model_url, output_path, show_progress, max_retries, hf_token)
@@ -589,7 +595,7 @@ download_model <- function(model_url, output_path = NULL, show_progress = TRUE,
     }
   }
   
-  message("Model downloaded successfully!")
+  .localllm_message("Model downloaded successfully!")
   return(output_path)
 }
 
@@ -674,7 +680,7 @@ get_model_cache_dir <- function() {
 list_cached_models <- function(cache_dir = NULL) {
   cached <- .list_cached_models(cache_dir)
   if (nrow(cached) == 0) {
-    message("No cached models were found. Use download_model() or model_load() with a URL to populate the cache.")
+    .localllm_message("No cached models were found. Use download_model() or model_load() with a URL to populate the cache.")
   }
   cached
 }
@@ -737,21 +743,21 @@ list_cached_models <- function(cache_dir = NULL) {
   matches <- matches[order(matches$modified, decreasing = TRUE), , drop = FALSE]
 
   if (nrow(matches) == 1) {
-    message("Using cached model: ", matches$path)
+    .localllm_message("Using cached model: ", matches$path)
     return(matches$path)
   }
 
-  message(sprintf("Multiple cached models matched '%s':", model_name))
+  .localllm_message(sprintf("Multiple cached models matched '%s':", model_name))
   for (i in seq_len(nrow(matches))) {
     size_mb <- round(matches$size_bytes[i] / 1024 / 1024, 1)
-    message(sprintf("[%d] %s (%.1f MB) - %s", i, matches$name[i], size_mb, matches$path[i]))
+    .localllm_message(sprintf("[%d] %s (%.1f MB) - %s", i, matches$name[i], size_mb, matches$path[i]))
   }
 
   selection_option <- getOption("localllm.cache_selection", default = NULL)
   if (!is.null(selection_option)) {
     idx <- suppressWarnings(as.integer(selection_option))
     if (!is.na(idx) && idx >= 1 && idx <= nrow(matches)) {
-      message("Selected cached model via option localllm.cache_selection = ", idx)
+      .localllm_message("Selected cached model via option localllm.cache_selection = ", idx)
       return(matches$path[idx])
     }
     warning("Ignoring invalid localllm.cache_selection option; falling back to interactive prompt.")
@@ -770,14 +776,14 @@ list_cached_models <- function(cache_dir = NULL) {
   repeat {
     answer <- readline("Enter the number of the model to use (press Enter to cancel): ")
     if (identical(answer, "")) {
-      message("Selection cancelled. Please provide a more specific path or URL.")
+      .localllm_message("Selection cancelled. Please provide a more specific path or URL.")
       return(NULL)
     }
     idx <- suppressWarnings(as.integer(answer))
     if (!is.na(idx) && idx >= 1 && idx <= nrow(matches)) {
       return(matches$path[idx])
     }
-    message(sprintf("Invalid selection. Please enter a number between 1 and %d.", nrow(matches)))
+    .localllm_message(sprintf("Invalid selection. Please enter a number between 1 and %d.", nrow(matches)))
   }
 }
 
@@ -819,13 +825,13 @@ list_cached_models <- function(cache_dir = NULL) {
     dir.create(output_dir, recursive = TRUE)
   }
   
-  message("Downloading model from: ", model_url)
-  message("Saving to: ", cache_path)
+  .localllm_message("Downloading model from: ", model_url)
+  .localllm_message("Saving to: ", cache_path)
   
   # Download with retry mechanism
   .download_with_retry(model_url, cache_path, show_progress, hf_token = hf_token)
   
-  message("Model downloaded successfully!")
+  .localllm_message("Model downloaded successfully!")
 }
 
 #' Resolve model path (download if needed)
@@ -854,14 +860,14 @@ list_cached_models <- function(cache_dir = NULL) {
     if (file.exists(cache_path) && !force_redownload) {
       if (verify_integrity) {
         if (.verify_file_integrity(cache_path)) {
-          message("Using cached model: ", cache_path)
+          .localllm_message("Using cached model: ", cache_path)
           return(cache_path)
         } else {
-          message("Cached model failed integrity check, re-downloading...")
+          .localllm_message("Cached model failed integrity check, re-downloading...")
           file.remove(cache_path)
         }
       } else {
-        message("Using cached model: ", cache_path)
+        .localllm_message("Using cached model: ", cache_path)
         return(cache_path)
       }
     }
@@ -902,14 +908,14 @@ list_cached_models <- function(cache_dir = NULL) {
       } else if (length(matches_idx) == 1L) {
         selection_idx <- matches_idx[1L]
       } else {
-        message(sprintf("Multiple Ollama models matched '%s':", query))
+        .localllm_message(sprintf("Multiple Ollama models matched '%s':", query))
         selection_idx <- .select_ollama_model_df(models_df[matches_idx, , drop = FALSE])
       }
     } else {
       if (nrow(models_df) == 1L) {
         selection_idx <- 1L
       } else {
-        message("Detected the following Ollama GGUF models:")
+        .localllm_message("Detected the following Ollama GGUF models:")
         selection_idx <- .select_ollama_model_df(models_df)
       }
     }
@@ -919,7 +925,7 @@ list_cached_models <- function(cache_dir = NULL) {
     }
 
     selected_model <- models_df[selection_idx, , drop = FALSE]
-    message("Using Ollama model: ", selected_model$name)
+    .localllm_message("Using Ollama model: ", selected_model$name)
     return(selected_model$path)
   }
 
@@ -1031,13 +1037,17 @@ list_cached_models <- function(cache_dir = NULL) {
 .download_with_retry <- function(model_url, output_path, show_progress = TRUE, max_retries = 3, hf_token = NULL) {
   .with_hf_token(hf_token, {
     .ensure_backend_loaded()
+    preflight_error <- .preflight_hf_authorization(model_url)
+    if (!is.null(preflight_error)) {
+      stop(preflight_error, call. = FALSE)
+    }
     
     # Create lock file to prevent concurrent downloads
     lock_file <- paste0(output_path, ".lock")
     
     # Check if another process is downloading
     if (file.exists(lock_file)) {
-      message("Another download in progress, waiting...")
+      .localllm_message("Another download in progress, waiting...")
       for (i in 1:30) {  # Wait up to 30 seconds
         Sys.sleep(1)
         if (!file.exists(lock_file)) break
@@ -1060,7 +1070,7 @@ list_cached_models <- function(cache_dir = NULL) {
     
     for (attempt in 1:max_retries) {
       if (attempt > 1) {
-        message("Download attempt ", attempt, " of ", max_retries, "...")
+        .localllm_message("Download attempt ", attempt, " of ", max_retries, "...")
         Sys.sleep(2)  # Brief delay between retries
       }
       
@@ -1088,7 +1098,7 @@ list_cached_models <- function(cache_dir = NULL) {
         
         # Try R fallback on last attempt
         if (attempt == max_retries) {
-          message("C++ download failed, trying R fallback...")
+          .localllm_message("C++ download failed, trying R fallback...")
           
           tryCatch({
             utils::download.file(model_url, output_path, mode = "wb", 
@@ -1109,4 +1119,57 @@ list_cached_models <- function(cache_dir = NULL) {
     stop("Download failed after ", max_retries, " attempts. Last error: ", 
          last_error$message, call. = FALSE)
   })
-} 
+}
+
+.preflight_hf_authorization <- function(model_url) {
+  if (is.null(model_url) || !nzchar(model_url)) {
+    return(NULL)
+  }
+  if (!grepl("^https?://", model_url, ignore.case = TRUE)) {
+    return(NULL)
+  }
+  host <- tolower(sub("^https?://([^/]+).*", "\\1", model_url))
+  if (!grepl("huggingface\\.co$", host)) {
+    return(NULL)
+  }
+  if (!requireNamespace("curl", quietly = TRUE)) {
+    return(NULL)
+  }
+  handle <- curl::new_handle()
+  curl::handle_setopt(handle,
+                      nobody = TRUE,
+                      failonerror = FALSE,
+                      followlocation = TRUE,
+                      connecttimeout = 10,
+                      timeout = 30)
+  token <- Sys.getenv("HF_TOKEN", "")
+  if (nzchar(token)) {
+    curl::handle_setheaders(handle, Authorization = paste("Bearer", token))
+  }
+  result <- tryCatch(
+    curl::curl_fetch_memory(model_url, handle = handle),
+    error = function(e) e
+  )
+  status <- NA_integer_
+  if (inherits(result, "error")) {
+    if (!is.null(result$response_code)) {
+      status <- as.integer(result$response_code)
+    }
+  } else if (!is.null(result$status_code)) {
+    status <- as.integer(result$status_code)
+  }
+  if (!is.na(status) && status %in% c(401L, 403L)) {
+    if (nzchar(token)) {
+      return(sprintf(
+        "Download failed with HTTP %d even though an HF token is set. Please ensure the token can access '%s'.",
+        status,
+        model_url
+      ))
+    }
+    return(sprintf(
+      "Download requires a Hugging Face access token (HTTP %d). Run set_hf_token() or pass hf_token before retrying.",
+      status
+    ))
+  }
+  NULL
+}

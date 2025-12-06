@@ -292,13 +292,13 @@ hardware_profile <- function(refresh = FALSE) {
       issues <- c(issues, "   GPU: Could not be detected, but n_gpu_layers > 0")
     } else if (grepl("unified memory", gpu_info$source, ignore.case = TRUE)) {
       # Apple Silicon with unified memory - informational only
-      message(sprintf(
+      .localllm_message(sprintf(
         "Info: GPU '%s' (%d cores) uses unified memory architecture. GPU layers will share system RAM (%.1f GB total).",
         gpu_info$name, gpu_info$cores %||% NA_integer_, ram_total / 2^30
       ))
     } else if (grepl("shared memory", gpu_info$source, ignore.case = TRUE)) {
       # Intel integrated GPU - informational only
-      message(sprintf(
+      .localllm_message(sprintf(
         "Info: GPU '%s' uses shared memory architecture. GPU layers will share system RAM (%.1f GB total).",
         gpu_info$name, ram_total / 2^30
       ))

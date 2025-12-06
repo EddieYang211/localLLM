@@ -1,8 +1,8 @@
 # --- FILE: localLLM/R/install.R ---
 
 # Define library version and base URL
-.lib_version <- "1.0.1"
-.base_url <- "https://github.com/EddieYang211/localLLM/releases/download/v1.0.1/"
+.lib_version <- "1.0.2"
+.base_url <- "https://github.com/EddieYang211/localLLM/releases/download/v1.0.2/"
 
 # Get path for local library storage
 .lib_path <- function() {
@@ -132,7 +132,7 @@ get_lib_path <- function() {
 #' @seealso \code{\link{lib_is_installed}}, \code{\link{get_lib_path}}
 install_localLLM <- function() {
   if (lib_is_installed()) {
-    message("localLLM backend library is already installed.")
+    .localllm_message("localLLM backend library is already installed.")
     return(invisible(NULL))
   }
   
@@ -157,19 +157,19 @@ install_localLLM <- function() {
   download_url <- .get_download_url()
   dest_file <- file.path(lib_dir, basename(download_url))
   
-  message("Downloading from: ", download_url)
+  .localllm_message("Downloading from: ", download_url)
   tryCatch({
     utils::download.file(download_url, destfile = dest_file, mode = "wb")
   }, error = function(e) {
     stop("Failed to download backend library. Please check your internet connection.\nError: ", e$message, call. = FALSE)
   })
   
-  message("Download complete. Unzipping...")
+  .localllm_message("Download complete. Unzipping...")
   utils::unzip(dest_file, exdir = lib_dir)
   unlink(dest_file) # Delete zip file
   
   if (lib_is_installed()) {
-    message("localLLM backend library successfully installed to: ", lib_dir)
+    .localllm_message("localLLM backend library successfully installed to: ", lib_dir)
   } else {
     stop("Installation failed. The library file was not found after unpacking.", call. = FALSE)
   }

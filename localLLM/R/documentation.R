@@ -93,7 +93,7 @@ document_end <- function() {
   }
   writeLines(lines_to_write, con)
 
-  message("localLLM run log written to: ", path, " (hash: ", run_hash, ")")
+  .localllm_message("localLLM run log written to: ", path, " (hash: ", run_hash, ")")
 
   .localllm_doc_env$active <- FALSE
   .localllm_doc_env$entries <- list()
