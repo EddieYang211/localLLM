@@ -97,11 +97,12 @@ jobs:
             libfreetype6-dev \
             libpng-dev \
             libtiff5-dev \
-            libjpeg-dev
+            libjpeg-dev \
+            r-base-dev
           # Additional dependencies for potential GPU support detection
           sudo apt-get install -y pciutils || true
 
-      - name: Install system dependencies (Windows) 
+      - name: Install system dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
           # Windows typically has the necessary build tools through Rtools
@@ -252,7 +253,8 @@ jobs:
             libfreetype6-dev \
             libpng-dev \
             libtiff5-dev \
-            libjpeg-dev
+            libjpeg-dev \
+            r-base-dev
           # Additional dependencies for potential GPU support detection
           sudo apt-get install -y pciutils || true
 
