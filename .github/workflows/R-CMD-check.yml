@@ -131,19 +131,15 @@ jobs:
           key: localllm-libs-${{ runner.os }}-v1.0.57
           restore-keys: localllm-libs-${{ runner.os }}-
 
-      # Install R dependencies manually for local package
-      - name: Install system dependencies for R packages
-        run: |
-          # Install essential R packages first
-          Rscript -e "install.packages(c('devtools', 'testthat', 'rcmdcheck', 'Rcpp', 'curl'), repos='https://cloud.r-project.org')"
-        shell: bash
-        working-directory: localLLM
-
-      - name: Install package dependencies
-        run: |
-          # Install dependencies from DESCRIPTION
-          Rscript -e "devtools::install_deps(dependencies = TRUE, repos='https://cloud.r-project.org')"
-        shell: bash
+      - name: Install R package dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          working-directory: localLLM
+          extra-packages: |
+            any::devtools
+            any::rcmdcheck
+            any::testthat
+            any::curl
 
       # Pre-install the backend library to avoid network issues during check
       - name: Pre-install localllm backend
