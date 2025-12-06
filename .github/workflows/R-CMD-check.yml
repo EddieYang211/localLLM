@@ -135,10 +135,10 @@ jobs:
       - name: Install system dependencies for R packages
         run: |
           # Install essential R packages first
-          Rscript -e "install.packages(c('devtools', 'testthat', 'rcmdcheck', 'Rcpp'), repos='https://cloud.r-project.org')"
+          Rscript -e "install.packages(c('devtools', 'testthat', 'rcmdcheck', 'Rcpp', 'curl'), repos='https://cloud.r-project.org')"
         shell: bash
-        working-directory: .
-      
+        working-directory: localLLM
+
       - name: Install package dependencies
         run: |
           # Install dependencies from DESCRIPTION
