@@ -326,8 +326,14 @@ quick_llama_reset <- function() {
   text <- gsub("</?(bos|eos)>", "", text, ignore.case = TRUE, perl = TRUE)
 
   # Remove Gemma-specific turn markers
-  text <- gsub("<start_of_turn>(?:user|model|assistant|system)?\\s*", "", text, perl = TRUE, ignore.case = TRUE)
-  text <- gsub("<end_of_turn>\\s*", "", text, perl = TRUE, ignore.case = TRUE)
+  text <- gsub("\\s*</?end_of_turn>\\s*", "", text, perl = TRUE, ignore.case = TRUE)
+  text <- gsub("\\s*</?start_of_turn>(?:user|model|assistant|system)?\\s*", "", text, perl = TRUE, ignore.case = TRUE)
+
+  text <- gsub("\\s*<\\|im_end\\|>.*$", "", text, perl = TRUE)  # Remove im_end and everything after
+  text <- gsub("<\\|im_start\\|>(?:system|user|assistant)?\\s*", "", text, perl = TRUE)
+  text <- gsub("<\\|endoftext\\|>\\s*", "", text, perl = TRUE)
+
+  text <- gsub("\\s*<\\|[^|>]*$", "", text, perl = TRUE)
 
   # Trim whitespace after removals
   text <- trimws(text)

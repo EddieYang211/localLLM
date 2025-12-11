@@ -1028,96 +1028,394 @@ list_cached_models <- function(cache_dir = NULL) {
   })
 }
 
+# --- Download Lock File Management ---
+# These functions handle robust file locking to prevent concurrent downloads
+# and properly detect/clean stale locks from crashed processes.
+
+#' Acquire a download lock with stale lock detection
+#' @param lock_file Path to the lock file
+#' @param timeout_seconds Maximum time to wait for lock acquisition
+#' @param stale_threshold_seconds Consider lock stale if older than this and process is dead
+#' @return TRUE if lock acquired, FALSE otherwise
+#' @noRd
+.acquire_download_lock <- function(lock_file, timeout_seconds = 300, stale_threshold_seconds = 3600) {
+  start_time <- Sys.time()
+
+  while (difftime(Sys.time(), start_time, units = "secs") < timeout_seconds) {
+    # Check for existing lock
+    if (file.exists(lock_file)) {
+      lock_info <- .read_lock_file(lock_file)
+
+      if (!is.null(lock_info)) {
+        # Check if lock is stale (process dead or lock too old)
+        if (.is_lock_stale(lock_info, stale_threshold_seconds)) {
+          .localllm_message("Removing stale lock file (PID ", lock_info$pid, " no longer running)")
+          tryCatch(file.remove(lock_file), error = function(e) NULL)
+        } else {
+          # Lock is held by active process, wait
+          .localllm_message("Download in progress by PID ", lock_info$pid, ", waiting...")
+          Sys.sleep(2)
+          next
+        }
+      } else {
+        # Corrupted lock file, remove it
+        tryCatch(file.remove(lock_file), error = function(e) NULL)
+      }
+    }
+
+    # Try to acquire lock atomically
+    if (.try_create_lock(lock_file)) {
+      return(TRUE)
+    }
+
+    # Another process beat us, retry
+    Sys.sleep(0.5)
+  }
+
+  FALSE
+}
+
+#' Try to create lock file atomically
+#' @param lock_file Path to the lock file
+#' @return TRUE if lock was created, FALSE if it already exists
+#' @noRd
+.try_create_lock <- function(lock_file) {
+  lock_content <- list(
+    pid = Sys.getpid(),
+    timestamp = as.numeric(Sys.time()),
+    hostname = Sys.info()[["nodename"]]
+  )
+
+  # Create temp file first, then rename (atomic on most filesystems)
+  temp_lock <- paste0(lock_file, ".", Sys.getpid(), ".", format(as.numeric(Sys.time()) * 1000, scientific = FALSE))
+
+  tryCatch({
+    # Ensure parent directory exists
+    lock_dir <- dirname(lock_file)
+    if (!dir.exists(lock_dir)) {
+      dir.create(lock_dir, recursive = TRUE)
+    }
+
+    # Write lock info to temp file
+    writeLines(jsonlite::toJSON(lock_content, auto_unbox = TRUE), temp_lock)
+
+    # Atomic rename - fails if target exists (on POSIX systems)
+    # On Windows, we need a fallback
+    if (.Platform$OS.type == "unix") {
+      # Use link + unlink for atomic creation
+      result <- tryCatch({
+        file.link(temp_lock, lock_file)
+        file.remove(temp_lock)
+        TRUE
+      }, error = function(e) {
+        tryCatch(file.remove(temp_lock), error = function(e) NULL)
+        FALSE
+      }, warning = function(w) {
+        tryCatch(file.remove(temp_lock), error = function(e) NULL)
+        FALSE
+      })
+      return(result)
+    } else {
+      # Windows fallback: check-then-rename (small race window)
+      if (!file.exists(lock_file)) {
+        file.rename(temp_lock, lock_file)
+        return(TRUE)
+      } else {
+        tryCatch(file.remove(temp_lock), error = function(e) NULL)
+        return(FALSE)
+      }
+    }
+  }, error = function(e) {
+    tryCatch(file.remove(temp_lock), error = function(e) NULL)
+    FALSE
+  })
+}
+
+#' Read and parse lock file contents
+#' @param lock_file Path to the lock file
+#' @return List with pid, timestamp, hostname or NULL if invalid
+#' @noRd
+.read_lock_file <- function(lock_file) {
+  tryCatch({
+    content <- readLines(lock_file, warn = FALSE)
+    if (length(content) == 0) return(NULL)
+    jsonlite::fromJSON(paste(content, collapse = "\n"))
+  }, error = function(e) NULL)
+}
+
+#' Check if a lock is stale
+#' @param lock_info List containing pid and timestamp
+#' @param stale_threshold_seconds Maximum age before lock is considered stale
+#' @return TRUE if lock is stale, FALSE otherwise
+#' @noRd
+.is_lock_stale <- function(lock_info, stale_threshold_seconds) {
+  if (is.null(lock_info$pid) || is.null(lock_info$timestamp)) {
+    return(TRUE)  # Malformed lock is stale
+  }
+
+  # Check if process is still running
+  pid_alive <- .is_pid_alive(lock_info$pid)
+
+  # Check if lock is too old (fallback for zombie processes or cross-machine locks)
+  lock_age <- as.numeric(Sys.time()) - lock_info$timestamp
+  too_old <- lock_age > stale_threshold_seconds
+
+  # Lock is stale if process is dead OR lock is very old
+  !pid_alive || too_old
+}
+
+#' Check if a process ID is still running
+#' @param pid Process ID to check
+#' @return TRUE if process is alive, FALSE otherwise
+#' @noRd
+.is_pid_alive <- function(pid) {
+  if (.Platform$OS.type == "unix") {
+    # Send signal 0 to check if process exists
+    result <- suppressWarnings(system2("kill", c("-0", as.character(pid)),
+                                        stdout = FALSE, stderr = FALSE))
+    return(result == 0)
+  } else {
+    # Windows: use tasklist
+    result <- suppressWarnings(system2("tasklist",
+                                        c("/FI", paste0("\"PID eq ", pid, "\""), "/NH"),
+                                        stdout = TRUE, stderr = FALSE))
+    return(any(grepl(as.character(pid), result)))
+  }
+}
+
+#' Release a download lock
+#' @param lock_file Path to the lock file
+#' @noRd
+.release_download_lock <- function(lock_file) {
+  if (file.exists(lock_file)) {
+    # Only remove if we own the lock
+    lock_info <- .read_lock_file(lock_file)
+    if (!is.null(lock_info) && identical(as.integer(lock_info$pid), Sys.getpid())) {
+      tryCatch(file.remove(lock_file), error = function(e) NULL)
+    }
+  }
+}
+
+# --- Download Timeout Support ---
+
+#' Execute an expression with a timeout
+#' @param expr Expression to evaluate
+#' @param timeout_seconds Timeout in seconds
+#' @return Result of expr
+#' @noRd
+.with_download_timeout <- function(expr, timeout_seconds = 3600) {
+  if (.Platform$OS.type == "unix") {
+    # Use setTimeLimit for Unix systems
+    setTimeLimit(elapsed = timeout_seconds, transient = TRUE)
+    on.exit(setTimeLimit(elapsed = Inf, transient = FALSE), add = TRUE)
+    tryCatch(
+      expr,
+      error = function(e) {
+        if (grepl("reached elapsed time limit", e$message)) {
+          stop("Download timed out after ", timeout_seconds, " seconds", call. = FALSE)
+        }
+        stop(e)
+      }
+    )
+  } else {
+    # Windows: setTimeLimit doesn't work well for external calls
+    # Use R.utils::withTimeout if available
+    if (requireNamespace("R.utils", quietly = TRUE)) {
+      tryCatch(
+        R.utils::withTimeout(expr, timeout = timeout_seconds, onTimeout = "error"),
+        TimeoutException = function(e) {
+          stop("Download timed out after ", timeout_seconds, " seconds", call. = FALSE)
+        },
+        error = function(e) {
+          if (grepl("timeout|Timeout", e$message, ignore.case = TRUE)) {
+            stop("Download timed out after ", timeout_seconds, " seconds", call. = FALSE)
+          }
+          stop(e)
+        }
+      )
+    } else {
+      # Fallback: no timeout protection on Windows without R.utils
+      # Issue a one-time warning
+      if (is.null(getOption("localllm.timeout_warning_shown"))) {
+        warning("Download timeout not available on Windows without the 'R.utils' package. ",
+                "Consider installing it for timeout support.", call. = FALSE)
+        options(localllm.timeout_warning_shown = TRUE)
+      }
+      expr
+    }
+  }
+}
+
+# --- Authenticated Download Support ---
+
+#' Download file with authentication support (R fallback)
+#' @param url URL to download
+#' @param destfile Destination file path
+#' @param show_progress Whether to show progress
+#' @return TRUE invisibly on success
+#' @noRd
+.download_with_auth <- function(url, destfile, show_progress = TRUE) {
+  token <- Sys.getenv("HF_TOKEN", "")
+
+  # If curl package is available and we have a token (or for better reliability), use curl
+  if (requireNamespace("curl", quietly = TRUE)) {
+    handle <- curl::new_handle()
+
+    # Set headers
+    headers <- c(`User-Agent` = "localLLM-R-package")
+    if (nzchar(token)) {
+      headers <- c(headers, Authorization = paste("Bearer", token))
+    }
+    do.call(curl::handle_setheaders, c(list(handle), as.list(headers)))
+
+    curl::handle_setopt(handle,
+                        followlocation = TRUE,
+                        failonerror = TRUE,
+                        connecttimeout = 30)
+
+    if (!show_progress) {
+      curl::handle_setopt(handle, noprogress = TRUE)
+    }
+
+    curl::curl_download(url, destfile, handle = handle)
+    return(invisible(TRUE))
+  }
+
+  # Fallback to download.file
+  if (nzchar(token)) {
+    # Check if R version supports headers parameter (R >= 4.2.0)
+    if (getRversion() >= "4.2.0") {
+      utils::download.file(url, destfile, mode = "wb", method = "libcurl",
+                          quiet = !show_progress,
+                          headers = c(Authorization = paste("Bearer", token)))
+    } else {
+      # For older R versions without headers support, warn about auth limitation
+      warning("HF_TOKEN is set but R version < 4.2 cannot pass headers to download.file(). ",
+              "Install the 'curl' package for authenticated downloads.", call. = FALSE)
+      utils::download.file(url, destfile, mode = "wb", method = "auto",
+                          quiet = !show_progress)
+    }
+  } else {
+    # No auth needed - use standard download
+    utils::download.file(url, destfile, mode = "wb", method = "auto",
+                        quiet = !show_progress)
+  }
+
+  invisible(TRUE)
+}
+
+# --- Main Download Function ---
+
 #' Download with retry mechanism
 #' @param model_url URL to download from
 #' @param output_path Local path to save to
-#' @param show_progress Whether to show progress
-#' @param max_retries Maximum number of retries
+#' @param show_progress Whether to show download progress
+#' @param max_retries Maximum number of retries for C++ downloader
+#' @param hf_token Optional Hugging Face token
+#' @param timeout_seconds Download timeout per attempt (default: 1 hour)
+#' @param lock_timeout_seconds Time to wait for lock acquisition (default: 5 minutes)
 #' @noRd
-.download_with_retry <- function(model_url, output_path, show_progress = TRUE, max_retries = 3, hf_token = NULL) {
+.download_with_retry <- function(model_url, output_path, show_progress = TRUE,
+                                  max_retries = 3, hf_token = NULL,
+                                  timeout_seconds = 3600, lock_timeout_seconds = 300) {
   .with_hf_token(hf_token, {
     .ensure_backend_loaded()
+
+    # Preflight authorization check
     preflight_error <- .preflight_hf_authorization(model_url)
     if (!is.null(preflight_error)) {
       stop(preflight_error, call. = FALSE)
     }
-    
-    # Create lock file to prevent concurrent downloads
+
+    # Acquire lock with stale detection
     lock_file <- paste0(output_path, ".lock")
-    
-    # Check if another process is downloading
-    if (file.exists(lock_file)) {
-      .localllm_message("Another download in progress, waiting...")
-      for (i in 1:30) {  # Wait up to 30 seconds
-        Sys.sleep(1)
-        if (!file.exists(lock_file)) break
-      }
-      
-      if (file.exists(lock_file)) {
-        stop("Download timeout: another process seems to be stuck", call. = FALSE)
-      }
+    if (!.acquire_download_lock(lock_file, timeout_seconds = lock_timeout_seconds)) {
+      stop("Could not acquire download lock after ", lock_timeout_seconds,
+           " seconds. Another download may be in progress or a stale lock exists at: ",
+           lock_file, call. = FALSE)
     }
-    
-    # Create lock file
-    file.create(lock_file)
-    on.exit({
-      if (file.exists(lock_file)) {
-        file.remove(lock_file)
-      }
-    }, add = TRUE)
-    
+
+    # Ensure lock is released on exit
+    on.exit(.release_download_lock(lock_file), add = TRUE)
+
     last_error <- NULL
-    
+    cpp_error <- NULL
+
     for (attempt in 1:max_retries) {
       if (attempt > 1) {
         .localllm_message("Download attempt ", attempt, " of ", max_retries, "...")
         Sys.sleep(2)  # Brief delay between retries
       }
-      
-      tryCatch({
-        # Try C++ download first
-        .Call("c_r_download_model", 
-              as.character(model_url),
-              as.character(output_path),
-              as.logical(show_progress))
-        
-        # Check if download was successful
-        if (file.exists(output_path) && file.info(output_path)$size > 0) {
-          return()
-        }
-        
-        stop("Download produced empty file")
-        
+
+      # Try C++ download with timeout
+      cpp_success <- tryCatch({
+        .with_download_timeout({
+          .Call("c_r_download_model",
+                as.character(model_url),
+                as.character(output_path),
+                as.logical(show_progress))
+
+          # Verify download succeeded
+          if (file.exists(output_path) && file.info(output_path)$size > 0) {
+            TRUE
+          } else {
+            stop("Download produced empty file")
+          }
+        }, timeout_seconds = timeout_seconds)
       }, error = function(e) {
+        cpp_error <<- e
         last_error <<- e
-        
+
         # Clean up partial download
         if (file.exists(output_path)) {
-          file.remove(output_path)
+          tryCatch(file.remove(output_path), error = function(e) NULL)
         }
-        
-        # Try R fallback on last attempt
-        if (attempt == max_retries) {
-          .localllm_message("C++ download failed, trying R fallback...")
-          
-          tryCatch({
-            utils::download.file(model_url, output_path, mode = "wb", 
-                                method = "auto", quiet = !show_progress)
-            
-            if (file.exists(output_path) && file.info(output_path)$size > 0) {
-              return()
-            }
-            
-          }, error = function(e2) {
-            last_error <<- e2
-          })
-        }
+        FALSE
       })
+
+      if (isTRUE(cpp_success)) {
+        return(invisible(NULL))
+      }
     }
-    
-    # If we get here, all attempts failed
-    stop("Download failed after ", max_retries, " attempts. Last error: ", 
-         last_error$message, call. = FALSE)
+
+    # C++ attempts exhausted, try R fallback once with auth support
+    .localllm_message("C++ download failed, trying R fallback with authentication support...")
+
+    r_success <- tryCatch({
+      .with_download_timeout({
+        .download_with_auth(model_url, output_path, show_progress)
+
+        if (file.exists(output_path) && file.info(output_path)$size > 0) {
+          TRUE
+        } else {
+          stop("R fallback download produced empty file")
+        }
+      }, timeout_seconds = timeout_seconds)
+    }, error = function(e) {
+      last_error <<- e
+
+      # Clean up partial download
+      if (file.exists(output_path)) {
+        tryCatch(file.remove(output_path), error = function(e) NULL)
+      }
+      FALSE
+    })
+
+    if (isTRUE(r_success)) {
+      return(invisible(NULL))
+    }
+
+    # All attempts failed - provide informative error
+    error_details <- character(0)
+    if (!is.null(cpp_error)) {
+      error_details <- c(error_details, paste("C++ downloader:", cpp_error$message))
+    }
+    if (!is.null(last_error) && !identical(last_error, cpp_error)) {
+      error_details <- c(error_details, paste("R fallback:", last_error$message))
+    }
+
+    stop("Download failed after ", max_retries, " C++ attempts + R fallback.\n",
+         paste(error_details, collapse = "\n"), call. = FALSE)
   })
 }
 

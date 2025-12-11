@@ -291,7 +291,6 @@ ctx <- context_create(model, n_ctx = 1048, n_seq_max = 10)
 
 # Prepare all prompts at once
 all_prompts <- character(nrow(ag_news_sample))
-prompt_tokens <- vector("list", nrow(ag_news_sample))  # optional: inspect tokenized prompts
 
 for (i in 1:nrow(ag_news_sample)) {
   messages <- list(
@@ -306,7 +305,6 @@ for (i in 1:nrow(ag_news_sample)) {
   )
   formatted_prompt <- apply_chat_template(model, messages)
   all_prompts[i] <- formatted_prompt
-  prompt_tokens[[i]] <- tokenize(model, formatted_prompt)
 }
 
 # Process samples in parallel
@@ -355,7 +353,7 @@ models <- list(
   ),
   list(
     id = "qwen4b",
-    model_path = "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q8_0.gguf",  # Requires download from HuggingFace
+    model_path = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",  # Requires download from HuggingFace
     n_gpu_layers = 999,
     generation = list(max_tokens = 15, seed = 92092)
   )

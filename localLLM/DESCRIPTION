@@ -21,7 +21,8 @@ Imports:
     utils,
     jsonlite,
     digest,
-    curl
+    curl,
+    R.utils
 Suggests:
     testthat (>= 3.0.0),
     covr,

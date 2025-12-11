@@ -1,0 +1,4 @@
+exclude:
+  - backend/
+  - .github/
+  - node_modules/
