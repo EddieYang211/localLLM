@@ -345,18 +345,18 @@ set_hf_token('hf_your_token_here')
 
 # Define three models for comparison
 models <- list(
-  list(
-    id = "llama3b",
-    model_path = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",  # Package default (auto-cached)
-    n_gpu_layers = 999,
-    generation = list(max_tokens = 15, seed = 92092)
-  ),
-  list(
-    id = "qwen4b",
-    model_path = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",  # Requires download from HuggingFace
-    n_gpu_layers = 999,
-    generation = list(max_tokens = 15, seed = 92092)
-  )
+    list(
+        id = "gemma4b",
+        model_path = "https://huggingface.co/unsloth/gemma-3-4b-it-qat-GGUF/resolve/main/gemma-3-4b-it-qat-Q5_K_M.gguf",  # Requires download from HuggingFace
+        n_gpu_layers = 999,
+        generation = list(max_tokens = 15, seed = 92092)
+    ),
+    list(
+        id = "llama3b",
+        model_path = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
+        n_gpu_layers = 999,
+        generation = list(max_tokens = 15, seed = 92092)
+    )
 )
 
 # Define annotation template (one of three `prompts` options)
@@ -399,10 +399,11 @@ head(annotations$matrix)
 report <- validate(annotations, gold = ag_news_sample$class)
 
 # Confusion matrix for each model vs. gold labels
-print(report$confusion$vs_gold$llama32)
+print(report$confusion$vs_gold$gemma4b)
+print(report$confusion$vs_gold$llama3b)
 
 # Pairwise confusion tables between models
-print(report$confusion$pairwise$`llama32 vs deepseek`)
+print(report$confusion$pairwise$`gemma4b vs llama3b`)
 
 # Inter-annotator agreement (Cohen's Kappa)
 print(report$reliability$cohen)

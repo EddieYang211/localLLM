@@ -11,6 +11,32 @@ void check_error(localllm_error_code code, const char* error_message) {
     }
 }
 
+// --- Validation Macros for Crash Prevention ---
+#define CHECK_API_LOADED() \
+    if (!localllm_api_is_loaded()) { \
+        stop("Backend library is not loaded. Please run install_localLLM() first."); \
+    }
+
+#define CHECK_MODEL_PTR(model_ptr) \
+    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr)); \
+    if (!model) { \
+        stop("Invalid model handle: model may have been freed or is not a valid model object."); \
+    }
+
+#define CHECK_CONTEXT_PTR(ctx_ptr) \
+    localllm_context_handle ctx = static_cast<localllm_context_handle>(R_ExternalPtrAddr(ctx_ptr)); \
+    if (!ctx) { \
+        stop("Invalid context handle: context may have been freed or is not a valid context object."); \
+    }
+
+// Safe string construction that handles NULL with error
+inline std::string safe_string(const char* str, const char* name) {
+    if (!str) {
+        stop(std::string("Unexpected NULL string for: ") + name);
+    }
+    return std::string(str);
+}
+
 // --- Finalizers for External Pointers ---
 extern "C" void model_finalizer(SEXP ptr) {
     localllm_model_handle handle = static_cast<localllm_model_handle>(R_ExternalPtrAddr(ptr));
@@ -153,10 +179,8 @@ SEXP r_check_memory_available(SEXP required_bytes) {
 }
 
 SEXP r_context_create(SEXP model_ptr, SEXP n_ctx, SEXP n_threads, SEXP n_seq_max, SEXP verbosity) {
-    if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
-    }
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     int n_ctx_int = as<int>(n_ctx);
     int n_threads_int = as<int>(n_threads);
     int n_seq_max_int = as<int>(n_seq_max);
@@ -174,11 +198,8 @@ SEXP r_context_create(SEXP model_ptr, SEXP n_ctx, SEXP n_threads, SEXP n_seq_max
 }
 
 SEXP r_tokenize(SEXP model_ptr, SEXP text, SEXP add_special) {
-    if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
-    }
-    
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     std::string text_str = as<std::string>(text);
     bool add_special_bool = as<bool>(add_special);
     
@@ -201,16 +222,14 @@ SEXP r_tokenize(SEXP model_ptr, SEXP text, SEXP add_special) {
 }
 
 SEXP r_detokenize(SEXP model_ptr, SEXP tokens) {
-    if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
-    }
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     IntegerVector tokens_vec = as<IntegerVector>(tokens);
     const char* error_message = nullptr;
     char* text_c = nullptr;
     std::vector<int32_t> tokens_cpp = as<std::vector<int32_t>>(tokens_vec);
     check_error(localllm_api.detokenize(model, tokens_cpp.data(), tokens_cpp.size(), &text_c, &error_message), error_message);
-    std::string result(text_c);
+    std::string result = safe_string(text_c, "detokenize result");
     if (localllm_api.free_string) {
         localllm_api.free_string(text_c);
     }
@@ -218,10 +237,8 @@ SEXP r_detokenize(SEXP model_ptr, SEXP tokens) {
 }
 
 SEXP r_apply_chat_template(SEXP model_ptr, SEXP tmpl, SEXP chat_messages, SEXP add_ass) {
-    if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
-    }
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     List chat_messages_list = as<List>(chat_messages);
     bool add_ass_bool = as<bool>(add_ass);
     
@@ -244,7 +261,7 @@ SEXP r_apply_chat_template(SEXP model_ptr, SEXP tmpl, SEXP chat_messages, SEXP a
     char* result_c = nullptr;
     const char* error_message = nullptr;
     check_error(localllm_api.apply_chat_template(model, tmpl_c, messages_c.data(), messages_c.size(), add_ass_bool, &result_c, &error_message), error_message);
-    std::string result(result_c);
+    std::string result = safe_string(result_c, "chat template result");
     if (localllm_api.free_string) {
         localllm_api.free_string(result_c);
     }
@@ -252,10 +269,8 @@ SEXP r_apply_chat_template(SEXP model_ptr, SEXP tmpl, SEXP chat_messages, SEXP a
 }
 
 SEXP r_generate(SEXP ctx_ptr, SEXP tokens, SEXP max_tokens, SEXP top_k, SEXP top_p, SEXP temperature, SEXP repeat_last_n, SEXP penalty_repeat, SEXP seed) {
-    if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
-    }
-    localllm_context_handle ctx = static_cast<localllm_context_handle>(R_ExternalPtrAddr(ctx_ptr));
+    CHECK_API_LOADED();
+    CHECK_CONTEXT_PTR(ctx_ptr);
     IntegerVector tokens_vec = as<IntegerVector>(tokens);
     std::vector<int32_t> tokens_cpp = as<std::vector<int32_t>>(tokens_vec);
     int max_tokens_int = as<int>(max_tokens);
@@ -268,7 +283,7 @@ SEXP r_generate(SEXP ctx_ptr, SEXP tokens, SEXP max_tokens, SEXP top_k, SEXP top
     char* result_c = nullptr;
     const char* error_message = nullptr;
     check_error(localllm_api.generate(ctx, tokens_cpp.data(), tokens_cpp.size(), max_tokens_int, top_k_int, top_p_float, temperature_float, repeat_last_n_int, penalty_repeat_float, seed_int, &result_c, &error_message), error_message);
-    std::string result(result_c);
+    std::string result = safe_string(result_c, "generate result");
     if (localllm_api.free_string) {
         localllm_api.free_string(result_c);
     }
@@ -276,10 +291,8 @@ SEXP r_generate(SEXP ctx_ptr, SEXP tokens, SEXP max_tokens, SEXP top_k, SEXP top
 }
 
 SEXP r_generate_parallel(SEXP ctx_ptr, SEXP prompts, SEXP max_tokens, SEXP top_k, SEXP top_p, SEXP temperature, SEXP repeat_last_n, SEXP penalty_repeat, SEXP seed, SEXP progress) {
-    if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
-    }
-    localllm_context_handle ctx = static_cast<localllm_context_handle>(R_ExternalPtrAddr(ctx_ptr));
+    CHECK_API_LOADED();
+    CHECK_CONTEXT_PTR(ctx_ptr);
     CharacterVector prompts_vec = as<CharacterVector>(prompts);
     int max_tokens_int = as<int>(max_tokens);
     int top_k_int = as<int>(top_k);
@@ -302,7 +315,11 @@ SEXP r_generate_parallel(SEXP ctx_ptr, SEXP prompts, SEXP max_tokens, SEXP top_k
     
     CharacterVector results_r(prompts_c.size());
     for(size_t i = 0; i < prompts_c.size(); ++i) {
-        results_r[i] = std::string(results_c[i]);
+        if (results_c[i]) {
+            results_r[i] = std::string(results_c[i]);
+        } else {
+            stop("Unexpected NULL result for prompt at index " + std::to_string(i));
+        }
     }
     if (localllm_api.free_string_array) {
         localllm_api.free_string_array(results_c, prompts_c.size());
@@ -311,97 +328,110 @@ SEXP r_generate_parallel(SEXP ctx_ptr, SEXP prompts, SEXP max_tokens, SEXP top_k
 }
 
 SEXP r_token_get_text(SEXP model_ptr, SEXP token_sexp) {
-    if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
-    }
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     int32_t token = as<int32_t>(token_sexp);
     char* text_c = nullptr;
     const char* error_message = nullptr;
     check_error(localllm_api.token_get_text(model, token, &text_c, &error_message), error_message);
-    std::string text(text_c);
+    std::string text = safe_string(text_c, "token text");
     if (localllm_api.free_string) {
         localllm_api.free_string(text_c);
     }
     return CharacterVector::create(text);
 }
 
-// Simplified token functions
+// Simplified token functions - with validation to prevent crashes
 SEXP r_token_bos(SEXP model_ptr) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     return IntegerVector::create(localllm_api.token_bos(model));
 }
 
 SEXP r_token_eos(SEXP model_ptr) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     return IntegerVector::create(localllm_api.token_eos(model));
 }
 
 SEXP r_token_sep(SEXP model_ptr) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     return IntegerVector::create(localllm_api.token_sep(model));
 }
 
 SEXP r_token_nl(SEXP model_ptr) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     return IntegerVector::create(localllm_api.token_nl(model));
 }
 
 SEXP r_token_pad(SEXP model_ptr) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     return IntegerVector::create(localllm_api.token_pad(model));
 }
 
 SEXP r_token_eot(SEXP model_ptr) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     return IntegerVector::create(localllm_api.token_eot(model));
 }
 
 SEXP r_add_bos_token(SEXP model_ptr) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     return LogicalVector::create(localllm_api.add_bos_token(model));
 }
 
 SEXP r_add_eos_token(SEXP model_ptr) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     return LogicalVector::create(localllm_api.add_eos_token(model));
 }
 
 SEXP r_token_fim_pre(SEXP model_ptr) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     return IntegerVector::create(localllm_api.token_fim_pre(model));
 }
 
 SEXP r_token_fim_mid(SEXP model_ptr) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     return IntegerVector::create(localllm_api.token_fim_mid(model));
 }
 
 SEXP r_token_fim_suf(SEXP model_ptr) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     return IntegerVector::create(localllm_api.token_fim_suf(model));
 }
 
 SEXP r_token_get_attr(SEXP model_ptr, SEXP token_sexp) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     int32_t token = as<int32_t>(token_sexp);
     return IntegerVector::create(localllm_api.token_get_attr(model, token));
 }
 
 SEXP r_token_get_score(SEXP model_ptr, SEXP token_sexp) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     int32_t token = as<int32_t>(token_sexp);
     return NumericVector::create(localllm_api.token_get_score(model, token));
 }
 
 SEXP r_token_is_eog(SEXP model_ptr, SEXP token_sexp) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     int32_t token = as<int32_t>(token_sexp);
     return LogicalVector::create(localllm_api.token_is_eog(model, token));
 }
 
 SEXP r_token_is_control(SEXP model_ptr, SEXP token_sexp) {
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     int32_t token = as<int32_t>(token_sexp);
     return LogicalVector::create(localllm_api.token_is_control(model, token));
 }
@@ -411,11 +441,8 @@ void r_localllm_api_reset() {
 }
 
 SEXP r_tokenize_test(SEXP model_ptr) {
-    if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
-    }
-    
-    localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr));
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
     const char* test_text = "H";
     bool add_special = true;
     
