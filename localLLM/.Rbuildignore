@@ -3,3 +3,5 @@
 ^\.gitignore$
 ^inst/tools/diagnostics/\.Rhistory$
 ^tests/\.DS_Store$
+^.*\.Rproj$
+^\.Rproj\.user$

@@ -41,15 +41,16 @@ test_that("template prompt builder generates structured prompts", {
     stringsAsFactors = FALSE
   )
 
+  # Use proper field names - they render as-is
   template <- list(
-    annotation_task = "Classify whether the text is positive or negative.",
-    coding_rules = c("Return only POS or NEG", "Respond in JSON"),
-    examples = data.frame(
+    "Annotation Task" = "Classify whether the text is positive or negative.",
+    "Coding Rules" = "Return only POS or NEG. Respond in JSON.",
+    "Examples" = data.frame(
       text = c("I love it", "Hate it"),
       label = c("POS", "NEG"),
       stringsAsFactors = FALSE
     ),
-    target_text = dataset$text,
+    "Target Text" = dataset$text,
     sample_id = dataset$doc_id
   )
 
@@ -60,8 +61,9 @@ test_that("template prompt builder generates structured prompts", {
                  keep_prompts = TRUE)
 
   expect_equal(nrow(res$annotations), nrow(dataset))
-  expect_true(all(grepl("## Annotation Task:", res$annotations$prompt, fixed = TRUE)))
-  expect_true(all(grepl("## Output Format:", res$annotations$prompt, fixed = TRUE)))
+  # Field names render as-is
+ expect_true(all(grepl("## Annotation Task", res$annotations$prompt, fixed = TRUE)))
+  expect_true(all(grepl("## Target Text", res$annotations$prompt, fixed = TRUE)))
   expect_true(all(mapply(function(txt, prompt) grepl(txt, prompt, fixed = TRUE),
                          dataset$text,
                          res$annotations$prompt)))

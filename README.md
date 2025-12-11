@@ -348,20 +348,14 @@ set_hf_token('hf_your_token_here')
 # Define three models for comparison
 models <- list(
   list(
-    id = "llama32",
+    id = "llama3b",
     model_path = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",  # Package default (auto-cached)
     n_gpu_layers = 999,
     generation = list(max_tokens = 15, seed = 92092)
   ),
   list(
-    id = "deepseek",
-    model_path = "ollama:deepseek-r1:8b",  # Requires Ollama installation
-    n_gpu_layers = 999,
-    generation = list(max_tokens = 15, seed = 92092)
-  ),
-  list(
-    id = "gemma12b",
-    model_path = "https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-gguf/resolve/main/gemma-3-12b-it-q4_0.gguf",  # Requires download from HuggingFace
+    id = "qwen4b",
+    model_path = "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q8_0.gguf",  # Requires download from HuggingFace
     n_gpu_layers = 999,
     generation = list(max_tokens = 15, seed = 92092)
   )
@@ -369,22 +363,21 @@ models <- list(
 
 # Define annotation template (one of three `prompts` options)
 template_builder <- list(
-  annotation_task = "Classify this news article into exactly one of World, Sports, Business, Sci/Tech.",
-  coding_rules = c("Return only one label", "Respond in JSON format"),
-  examples = data.frame(
-    text = c("Australia's Fairfax Eyes Role In Media Shake-Up (business news about media industry)"),
-    label = c("Business")
-  ),
-  target_text = sprintf("Title: %s\nDescription: %s", ag_news_sample$title, ag_news_sample$description),
-  sample_id = seq_len(nrow(ag_news_sample)),
-  output_format = '{"answer": "World|Sports|Business|Sci/Tech"}'
+    sample_id = seq_len(nrow(ag_news_sample)),
+    "Annotation Task" = "Classify the target text into exactly one of following categories: World|Sports|Business|Sci/Tech.",
+    "Examples" = list(
+        list(text = "Australia's Fairfax Eyes Role In Media Shake-Up (business news about media industry)", label = 'Business')
+    ),
+    "Target Text" = sprintf("%s\n%s", ag_news_sample$title, ag_news_sample$description),
+    "Output Format" = '"World|Sports|Business|Sci/Tech"',
+    "Reminder" = "Your entire response should only be one word and nothing else. It should be your chosen category."
 )
 
 # Run batch annotation across all models
 annotations <- explore(
   models = models,
   prompts = template_builder,
-  batch_size = 30,
+  batch_size = 25,
   engine = "parallel",
   clean = TRUE
 )
