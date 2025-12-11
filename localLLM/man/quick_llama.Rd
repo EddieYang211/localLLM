@@ -42,8 +42,8 @@ quick_llama(
 
 \item{verbosity}{Backend logging verbosity (default: 1L). Higher values show more
 detail: \code{0} prints only errors, \code{1} adds warnings, \code{2}
-includes informational messages, \code{3} enables the most verbose debug
-output, and negative values suppress logging entirely.}
+includes informational messages, and \code{3} enables the most verbose debug
+output.}
 
 \item{max_tokens}{Maximum tokens to generate (default: 100)}
 

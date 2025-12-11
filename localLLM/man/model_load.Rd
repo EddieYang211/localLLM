@@ -51,9 +51,8 @@ Useful for updating to newer model versions}
 
 \item{verbosity}{Control backend logging during model loading (default: 1L).
 Larger numbers print more detail: \code{0} shows only errors, \code{1}
-adds warnings, \code{2} prints informational messages, \code{3}
-enables the most verbose debug output, and any negative value suppresses
-all backend output.}
+adds warnings, \code{2} prints informational messages, and \code{3}
+enables the most verbose debug output.}
 }
 \value{
 A model object (external pointer) that can be used with \code{\link{context_create}}, 

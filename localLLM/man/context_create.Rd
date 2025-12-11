@@ -27,9 +27,8 @@ processing multiple conversations simultaneously. Higher values require more mem
 
 \item{verbosity}{Control backend logging during context creation (default: 1L).
 Larger values print more information: \code{0} emits only errors, \code{1}
-includes warnings, \code{2} adds informational logs, \code{3}
-enables the most verbose debug output, and any negative value suppresses
-all backend output.}
+includes warnings, \code{2} adds informational logs, and \code{3}
+enables the most verbose debug output.}
 }
 \value{
 A context object (external pointer) used for text generation with \code{\link{generate}}

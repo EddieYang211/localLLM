@@ -91,7 +91,7 @@ model_load(
 
 #### 2. Re-using Existing Ollama Models (*Available in the next CRAN release*)
 
-If you already use [Ollama](https://ollama.ai) and have downloaded GGUF weights, `localLLM` can discover and load them directly without re-downloading. This saves disk space and bandwidth by reusing models you've already installed.
+If you already use [Ollama](https://ollama.com) and have downloaded GGUF weights, `localLLM` can discover and load them directly without re-downloading. This saves disk space and bandwidth by reusing models you've already installed.
 
 **Listing Available Ollama Models**
 

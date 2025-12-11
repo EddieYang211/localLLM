@@ -15,27 +15,55 @@ explore(
   progress = interactive(),
   clean = TRUE,
   keep_prompts = FALSE,
-  hash = TRUE
+  hash = TRUE,
+  chat_template = TRUE,
+  system_prompt = NULL
 )
 }
 \arguments{
-\item{models}{Model definitions. Accepts either a named character vector
-(names become `model_id`s) or a list where each element is a list with at
-least `id` and `model` (path/URL). Each model entry can optionally specify
-`instruction`, `generation` parameters, custom `prompts`, or a
-`predictor` function for mock/testing scenarios.}
+\item{models}{Model definitions. Accepts one of the following formats:
+  \itemize{
+    \item A single model path string (consistent with [model_load()] syntax)
+    \item A named character vector where names become `model_id`s
+    \item A list of model specification lists
+  }
+
+  Each model specification list supports the following keys:
+  \describe{
+    \item{id}{(Required unless auto-generated) Unique identifier for this model}
+    \item{model_path}{(Required unless using `predictor`) Path to local GGUF file,
+      URL, or cached model name. Supports the same formats as [model_load()]}
+    \item{n_gpu_layers}{Number of layers to offload to GPU. Use `"auto"` (default)
+      for automatic detection, `0` for CPU-only, or `-1` for all layers on GPU}
+    \item{n_ctx}{Context window size (default: 2048)}
+    \item{n_threads}{Number of CPU threads (default: auto-detected)}
+    \item{cache_dir}{Custom cache directory for model downloads}
+    \item{use_mmap}{Enable memory mapping (default: TRUE)}
+    \item{use_mlock}{Lock model in memory (default: FALSE)}
+    \item{check_memory}{Check memory availability before loading (default: TRUE)}
+    \item{force_redownload}{Force re-download even if cached (default: FALSE)}
+    \item{verify_integrity}{Verify file integrity (default: TRUE)}
+    \item{hf_token}{Hugging Face access token for gated models. Can also be set
+      globally via [set_hf_token()]}
+    \item{verbosity}{Backend logging level (default: 1)}
+    \item{chat_template}{Override the global `chat_template` setting for this model}
+    \item{system_prompt}{Override the global `system_prompt` for this model}
+    \item{instruction}{Task instruction to use for this model}
+    \item{generation}{List of generation parameters (max_tokens, temperature, etc.)}
+    \item{prompts}{Custom prompts for this model}
+    \item{predictor}{Function for mock/testing scenarios (bypasses model loading)}
+  }}
 
 \item{instruction}{Default task instruction inserted into `spec` whenever a
 model entry does not override it.}
 
 \item{prompts}{One of: (1) a function (for example `function(spec)`)
 that returns prompts (character vector or a data frame with a `prompt` column);
-(2) a character vector of ready-made prompts; or (3) a template list with
-entries such as `annotation_task`, `coding_rules`, `examples`,
-`target_text`, `sample_id`, `output_format`, and optional
-`data`/`text_col`/`id_col` keys. Template lists are rendered using the
-built-in annotation format described in the README. When `NULL`, each model
-must provide its own `prompts` entry.}
+(2) a character vector of ready-made prompts; or (3) a template list where
+each named element becomes a section in the rendered prompt. Field names are
+used as-is for headers. Vector fields matching `sample_id` length are treated
+as per-item values. Use `sample_id` to specify item IDs (meta, not rendered).
+When `NULL`, each model must provide its own `prompts` entry.}
 
 \item{engine}{One of `"auto"`, `"parallel"`, or `"single"`. Controls whether
 `generate_parallel()` or `generate()` is used under the hood.}
@@ -64,6 +92,15 @@ long-format output (useful for audits). Defaults to `FALSE`.}
 resulting labels so replication collaborators can verify inputs and
 outputs. Hashes are attached to the returned list via the `"hashes"`
 attribute.}
+
+\item{chat_template}{When `TRUE`, wraps prompts using the model's built-in chat
+template before generation. This uses [apply_chat_template()] to format
+prompts with appropriate special tokens for instruction-tuned models.
+Individual models can override this via their spec. Default: `TRUE`.}
+
+\item{system_prompt}{Optional system message to include when `chat_template = TRUE`.
+This is prepended as a system role message before the user prompt. Individual
+models can override this via their spec. Default: `NULL`.}
 }
 \value{
 A list with elements `annotations` (long table) and `matrix` (wide

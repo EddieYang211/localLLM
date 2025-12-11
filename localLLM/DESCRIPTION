@@ -2,12 +2,11 @@ Package: localLLM
 Type: Package
 Title: Running Local LLMs with 'llama.cpp' Backend
 Version: 1.0.2
-Date: 2025-10-08
+Date: 2025-12-11
 Authors@R: c(
     person("Eddie", "Yang", role = "aut", comment = c(ORCID = "0000-0002-3696-3226")), 
     person("Yaosheng", "Xu", role = c("aut", "cre"), email = "xu2009@purdue.edu", comment = c(ORCID = "0009-0006-8138-369X"))
     )
-Author: Eddie Yang [aut] (https://orcid.org/0000-0002-3696-3226), Yaosheng Xu [aut, cre] (https://orcid.org/0009-0006-8138-369X)
 Maintainer: Yaosheng Xu <xu2009@purdue.edu>
 Description: The 'localLLM' package provides R bindings to the 'llama.cpp' library for running large language models.
     The package uses a lightweight architecture where the C++ backend library is downloaded
@@ -25,7 +24,8 @@ Imports:
     curl
 Suggests:
     testthat (>= 3.0.0),
-    covr
+    covr,
+    irr
 URL: https://github.com/EddieYang211/localLLM
 BugReports: https://github.com/EddieYang211/localLLM/issues
 SystemRequirements: C++17, libcurl (optional, for model downloading)
