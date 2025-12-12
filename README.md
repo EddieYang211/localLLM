@@ -85,7 +85,7 @@ The `localLLM` backend is powered by `llama.cpp` (commit `b5421`), which only su
 
 ```r
 model_load(
-  model_path = "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf"
+  model_path = "https://huggingface.co/unsloth/gemma-3-4b-it-qat-GGUF/resolve/main/gemma-3-4b-it-qat-Q5_K_M.gguf"
 )
 ```
 

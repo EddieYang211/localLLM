@@ -8,7 +8,7 @@ Authors@R: c(
     person("Yaosheng", "Xu", role = c("aut", "cre"), email = "xu2009@purdue.edu", comment = c(ORCID = "0009-0006-8138-369X"))
     )
 Maintainer: Yaosheng Xu <xu2009@purdue.edu>
-Description: The 'localLLM' package provides R bindings to the 'llama.cpp' library for running large language models.
+Description: Provides R bindings to the 'llama.cpp' library for running large language models.
     The package uses a lightweight architecture where the C++ backend library is downloaded
     at runtime rather than bundled with the package. 
     Package features include text generation, reproducible generation, and parallel inference.
