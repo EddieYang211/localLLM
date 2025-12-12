@@ -1,0 +1,279 @@
+---
+title: "Ollama Integration"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Ollama Integration}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+If you already use [Ollama](https://ollama.com) and have downloaded GGUF models, localLLM can discover and load them directly without re-downloading. This saves disk space and bandwidth by reusing models you've already installed.
+
+## Discovering Ollama Models
+
+Use `list_ollama_models()` to see all GGUF models managed by Ollama:
+
+```{r}
+library(localLLM)
+
+models <- list_ollama_models()
+print(models)
+```
+
+```
+#>                name      size                                    path
+#> 1          llama3.2    2.0 GB ~/.ollama/models/blobs/sha256-6340dc32...
+#> 2      deepseek-r1:8b  4.9 GB ~/.ollama/models/blobs/sha256-8a2b7c9e...
+#> 3           gemma2:9b  5.4 GB ~/.ollama/models/blobs/sha256-9f8a7b6c...
+```
+
+## Loading Ollama Models
+
+You can reference Ollama models in several ways:
+
+### By Model Name
+
+```{r}
+model <- model_load("ollama:llama3.2")
+```
+
+### By Tag
+
+```{r}
+model <- model_load("ollama:deepseek-r1:8b")
+```
+
+### By SHA256 Prefix
+
+```{r}
+# Use at least 8 characters of the SHA256 hash
+model <- model_load("ollama:6340dc32")
+```
+
+### Interactive Selection
+
+```{r}
+# Lists all models and prompts for selection
+model <- model_load("ollama")
+```
+
+```
+#> Available Ollama models:
+#> 1. llama3.2 (2.0 GB)
+#> 2. deepseek-r1:8b (4.9 GB)
+#> 3. gemma2:9b (5.4 GB)
+#>
+#> Enter selection: 1
+```
+
+## Using with quick_llama()
+
+```{r}
+# Use Ollama model with quick_llama
+response <- quick_llama(
+  "Explain quantum computing in simple terms",
+  model_path = "ollama:llama3.2"
+)
+cat(response)
+```
+
+## Ollama Reference Trigger Rules
+
+The `model_path` parameter triggers Ollama model discovery when it matches specific patterns:
+
+| Input | Triggers Ollama | Description |
+|-------|----------------|-------------|
+| `"ollama"` | Yes | Exact match (case-insensitive) |
+| `"Ollama"` | Yes | Case-insensitive |
+| `" ollama "` | Yes | Whitespace is trimmed |
+| `"ollama:llama3"` | Yes | Starts with `ollama:` |
+| `"ollama:deepseek-r1:8b"` | Yes | Full model name with tag |
+| `"ollama:6340dc32"` | Yes | SHA256 prefix (8+ chars recommended) |
+| `"myollama"` | No | Not exact match, doesn't start with `ollama:` |
+| `"ollama.gguf"` | No | Treated as filename, not Ollama reference |
+
+## Common Workflows
+
+### Check Available Models First
+
+```{r}
+# See what's available
+available <- list_ollama_models()
+
+if (nrow(available) > 0) {
+  cat("Found", nrow(available), "Ollama models:\n")
+  print(available[, c("name", "size")])
+} else {
+  cat("No Ollama models found. Install some with: ollama pull llama3.2\n")
+}
+```
+
+### Load Specific Model
+
+```{r}
+# Load by exact name
+model <- model_load("ollama:llama3.2")
+
+# Create context and generate
+ctx <- context_create(model, n_ctx = 4096)
+
+messages <- list(
+  list(role = "user", content = "What is machine learning?")
+)
+prompt <- apply_chat_template(model, messages)
+response <- generate(ctx, prompt, max_tokens = 200)
+cat(response)
+```
+
+### Model Comparison with Ollama
+
+```{r}
+# Compare Ollama models
+models <- list(
+  list(
+    id = "llama3.2",
+    model_path = "ollama:llama3.2",
+    n_gpu_layers = 999
+  ),
+  list(
+    id = "deepseek",
+    model_path = "ollama:deepseek-r1:8b",
+    n_gpu_layers = 999
+  )
+)
+
+# Run comparison
+results <- explore(
+  models = models,
+  prompts = my_prompts,
+  engine = "parallel"
+)
+```
+
+## Ollama Directory Structure
+
+Ollama stores models in a specific location:
+
+- **macOS**: `~/.ollama/models/`
+- **Linux**: `~/.ollama/models/`
+- **Windows**: `%USERPROFILE%\.ollama\models\`
+
+The actual GGUF files are stored in:
+```
+~/.ollama/models/blobs/sha256-<hash>
+```
+
+localLLM reads the Ollama manifest files to map model names to their blob locations.
+
+## Troubleshooting
+
+### Model Not Found
+
+```{r}
+model <- model_load("ollama:nonexistent")
+```
+
+```
+#> Error: No Ollama model found matching 'nonexistent'.
+#> Available models: llama3.2, deepseek-r1:8b, gemma2:9b
+```
+
+**Solution**: Check available models with `list_ollama_models()` and verify the name.
+
+### Ollama Not Installed
+
+```{r}
+models <- list_ollama_models()
+```
+
+```
+#> Warning: Ollama directory not found at ~/.ollama/models
+#> data frame with 0 columns and 0 rows
+```
+
+**Solution**: Install Ollama from [ollama.com](https://ollama.com) and pull some models:
+
+```bash
+# In terminal
+ollama pull llama3.2
+ollama pull gemma2:9b
+```
+
+### Multiple Matches
+
+```{r}
+model <- model_load("ollama:llama")
+```
+
+```
+#> Multiple models match 'llama':
+#> 1. llama3.2 (2.0 GB)
+#> 2. llama2:7b (3.8 GB)
+#>
+#> Enter selection (or be more specific with model_load("ollama:llama3.2")):
+```
+
+**Solution**: Use a more specific name or select interactively.
+
+## Benefits of Ollama Integration
+
+1. **Save Disk Space**: No duplicate downloads
+2. **Faster Setup**: Use models you've already downloaded
+3. **Easy Discovery**: `list_ollama_models()` shows what's available
+4. **Flexible References**: Multiple ways to specify models
+5. **Seamless Integration**: Same API as other model sources
+
+## Complete Example
+
+```{r}
+library(localLLM)
+
+# 1. Check what's available
+available <- list_ollama_models()
+print(available)
+
+# 2. Load a model
+model <- model_load("ollama:llama3.2", n_gpu_layers = 999)
+
+# 3. Create context
+ctx <- context_create(model, n_ctx = 4096)
+
+# 4. Generate text
+messages <- list(
+  list(role = "system", content = "You are a helpful assistant."),
+  list(role = "user", content = "Write a haiku about coding.")
+)
+
+prompt <- apply_chat_template(model, messages)
+response <- generate(ctx, prompt, max_tokens = 50, temperature = 0.7)
+
+cat(response)
+```
+
+```
+#> Lines of code flow
+#> Logic builds like morning dew
+#> Bugs hide, then we debug
+```
+
+## Summary
+
+| Function | Purpose |
+|----------|---------|
+| `list_ollama_models()` | Discover available Ollama models |
+| `model_load("ollama:name")` | Load specific Ollama model |
+| `model_load("ollama")` | Interactive model selection |
+
+## Next Steps
+
+- **[Get Started](get-started.html)**: Basic localLLM usage
+- **[Basic Text Generation](tutorial-basic-generation.html)**: Core generation API
+- **[Model Comparison](tutorial-model-comparison.html)**: Compare multiple models

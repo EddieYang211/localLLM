@@ -1,0 +1,320 @@
+---
+title: "Parallel Processing"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Parallel Processing}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+When processing large datasets, parallel generation can significantly reduce execution time. This tutorial covers efficient batch processing strategies with localLLM.
+
+## Why Parallel Processing?
+
+Sequential processing with a for-loop processes one prompt at a time. Parallel processing batches multiple prompts together, sharing computation and reducing overhead.
+
+In benchmarks, `generate_parallel()` typically completes in **~65% of the time** compared to sequential `generate()` calls.
+
+## Using generate_parallel()
+
+### Basic Usage
+
+```{r}
+library(localLLM)
+
+# Load model
+model <- model_load("Llama-3.2-3B-Instruct-Q5_K_M.gguf", n_gpu_layers = 999)
+
+# Create context with batch support
+ctx <- context_create(
+  model,
+  n_ctx = 2048,
+  n_seq_max = 10  # Allow up to 10 parallel sequences
+)
+
+# Define prompts
+prompts <- c(
+  "What is the capital of France?",
+  "What is the capital of Germany?",
+  "What is the capital of Italy?"
+)
+
+# Format prompts
+formatted_prompts <- sapply(prompts, function(p) {
+  messages <- list(
+    list(role = "system", content = "Answer concisely."),
+    list(role = "user", content = p)
+  )
+  apply_chat_template(model, messages)
+})
+
+# Process in parallel
+results <- generate_parallel(ctx, formatted_prompts, max_tokens = 50)
+print(results)
+```
+
+```
+#> [1] "The capital of France is Paris."
+#> [2] "The capital of Germany is Berlin."
+#> [3] "The capital of Italy is Rome."
+```
+
+### Progress Tracking
+
+For large batches, enable progress reporting:
+
+```{r}
+results <- generate_parallel(
+  ctx,
+  formatted_prompts,
+  max_tokens = 50,
+  progress = TRUE
+)
+```
+
+```
+#> Processing 100 prompts...
+#> [##########----------] 50%
+#> [####################] 100%
+#> Done!
+```
+
+## Text Classification Example
+
+Here's a complete example classifying news articles:
+
+```{r}
+library(localLLM)
+
+# Load sample dataset
+data("ag_news_sample", package = "localLLM")
+
+# Load model
+model <- model_load("Llama-3.2-3B-Instruct-Q5_K_M.gguf", n_gpu_layers = 999)
+
+# Create context (n_seq_max determines max parallel prompts)
+ctx <- context_create(model, n_ctx = 1048, n_seq_max = 10)
+
+# Prepare all prompts
+all_prompts <- character(nrow(ag_news_sample))
+
+for (i in seq_len(nrow(ag_news_sample))) {
+  messages <- list(
+    list(role = "system", content = "You are a helpful assistant."),
+    list(role = "user", content = paste0(
+      "Classify this news article into exactly one category: ",
+      "World, Sports, Business, or Sci/Tech. ",
+      "Respond with only the category name.\n\n",
+      "Title: ", ag_news_sample$title[i], "\n",
+      "Description: ", substr(ag_news_sample$description[i], 1, 100), "\n\n",
+      "Category:"
+    ))
+  )
+  all_prompts[i] <- apply_chat_template(model, messages)
+}
+
+# Process all samples in parallel
+results <- generate_parallel(
+  context = ctx,
+  prompts = all_prompts,
+  max_tokens = 5,
+  seed = 92092,
+  progress = TRUE,
+  clean = TRUE
+)
+
+# Extract predictions
+ag_news_sample$LLM_result <- sapply(results, function(x) {
+  trimws(gsub("\\n.*$", "", x))
+})
+
+# Calculate accuracy
+accuracy <- mean(ag_news_sample$LLM_result == ag_news_sample$class)
+cat("Accuracy:", round(accuracy * 100, 1), "%\n")
+```
+
+```
+#> Accuracy: 87.0 %
+```
+
+## Sequential vs Parallel Comparison
+
+### Sequential (For Loop)
+
+```{r}
+# Sequential approach
+ag_news_sample$LLM_result <- NA
+ctx <- context_create(model, n_ctx = 512)
+
+system.time({
+  for (i in seq_len(nrow(ag_news_sample))) {
+    formatted_prompt <- all_prompts[i]
+    output <- generate(ctx, formatted_prompt, max_tokens = 5, seed = 92092)
+    ag_news_sample$LLM_result[i] <- trimws(output)
+  }
+})
+```
+
+```
+#>    user  system elapsed
+#>  45.32    2.15   48.23
+```
+
+### Parallel
+
+```{r}
+# Parallel approach
+ctx <- context_create(model, n_ctx = 1048, n_seq_max = 10)
+
+system.time({
+  results <- generate_parallel(
+    ctx, all_prompts,
+    max_tokens = 5,
+    seed = 92092,
+    progress = TRUE
+  )
+})
+```
+
+```
+#>    user  system elapsed
+#>  28.45    1.82   31.12
+```
+
+**Result**: ~35% faster with parallel processing.
+
+## Using quick_llama() for Batches
+
+The simplest approach for parallel processing is passing a vector to `quick_llama()`:
+
+```{r}
+# quick_llama automatically uses parallel mode for vectors
+prompts <- c(
+  "Summarize: Climate change is affecting global weather patterns...",
+  "Summarize: The stock market reached new highs today...",
+  "Summarize: Scientists discovered a new species of deep-sea fish..."
+)
+
+results <- quick_llama(prompts, max_tokens = 50)
+print(results)
+```
+
+## Performance Considerations
+
+### Context Size and n_seq_max
+
+The context window is shared across parallel sequences:
+
+```{r}
+# If n_ctx = 2048 and n_seq_max = 8
+# Each sequence gets approximately 2048/8 = 256 tokens
+
+# For longer prompts, increase n_ctx proportionally
+ctx <- context_create(
+  model,
+  n_ctx = 4096,   # Larger context
+  n_seq_max = 8   # 8 parallel sequences
+)
+```
+
+### Memory Usage
+
+Parallel processing uses more memory. Monitor with:
+
+```{r}
+hw <- hardware_profile()
+cat("Available RAM:", hw$ram_gb, "GB\n")
+cat("GPU:", hw$gpu, "\n")
+```
+
+### Batch Size Recommendations
+
+| Dataset Size | Recommended n_seq_max |
+|-------------|----------------------|
+| < 100 | 4-8 |
+| 100-1000 | 8-16 |
+| > 1000 | 16-32 (memory permitting) |
+
+## Error Handling
+
+If a prompt fails, the result will contain an error message:
+
+```{r}
+results <- generate_parallel(ctx, prompts, max_tokens = 50)
+
+# Check for errors
+for (i in seq_along(results)) {
+  if (grepl("^Error:", results[i])) {
+    cat("Prompt", i, "failed:", results[i], "\n")
+  }
+}
+```
+
+## Complete Workflow
+
+```{r}
+library(localLLM)
+
+# 1. Setup
+model <- model_load("Llama-3.2-3B-Instruct-Q5_K_M.gguf", n_gpu_layers = 999)
+ctx <- context_create(model, n_ctx = 2048, n_seq_max = 10)
+
+# 2. Prepare prompts
+data("ag_news_sample", package = "localLLM")
+
+prompts <- sapply(seq_len(nrow(ag_news_sample)), function(i) {
+  messages <- list(
+    list(role = "system", content = "Classify news articles."),
+    list(role = "user", content = paste0(
+      "Category (World/Sports/Business/Sci/Tech): ",
+      ag_news_sample$title[i]
+    ))
+  )
+  apply_chat_template(model, messages)
+})
+
+# 3. Process in batches with progress
+results <- generate_parallel(
+  ctx, prompts,
+  max_tokens = 10,
+  seed = 42,
+  progress = TRUE,
+  clean = TRUE
+)
+
+# 4. Extract and evaluate
+predictions <- sapply(results, function(x) trimws(gsub("\\n.*", "", x)))
+accuracy <- mean(predictions == ag_news_sample$class)
+cat("Accuracy:", round(accuracy * 100, 1), "%\n")
+```
+
+## Summary
+
+| Function | Use Case |
+|----------|----------|
+| `generate()` | Single prompts, interactive use |
+| `generate_parallel()` | Batch processing, large datasets |
+| `quick_llama(vector)` | Quick batch processing |
+| `explore()` | Multi-model comparison with batching |
+
+## Tips
+
+1. **Set `n_seq_max`** when creating context for parallel use
+2. **Scale `n_ctx`** with `n_seq_max` to give each sequence enough space
+3. **Enable `progress = TRUE`** for large batches
+4. **Use `clean = TRUE`** to automatically strip control tokens
+5. **Set consistent `seed`** for reproducibility across batches
+
+## Next Steps
+
+- **[Model Comparison](tutorial-model-comparison.html)**: Compare multiple models
+- **[Basic Text Generation](tutorial-basic-generation.html)**: Learn the core API
+- **[Reproducible Output](reproducible-output.html)**: Ensure reproducibility

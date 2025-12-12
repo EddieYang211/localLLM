@@ -1,0 +1,166 @@
+---
+title: "Get Started with localLLM"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Get Started with localLLM}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+**localLLM** provides an easy-to-use interface to run large language models (LLMs) directly in R. It uses the performant `llama.cpp` library as the backend and allows you to generate text and analyze data with LLMs. Everything runs locally on your own machine, completely free, with reproducibility by default.
+
+## Installation
+
+Getting started requires two simple steps: installing the R package and downloading the backend C++ library.
+
+### Step 1: Install the R package
+
+```{r}
+# Install from CRAN
+install.packages("localLLM")
+```
+### Step 2: Install the backend library
+
+The `install_localLLM()` function automatically detects your operating system (Windows, macOS, Linux) and processor architecture to download the appropriate pre-compiled library.
+
+```{r}
+library(localLLM)
+install_localLLM()
+```
+
+## Your First LLM Query
+
+The simplest way to get started is with `quick_llama()`:
+
+```{r}
+library(localLLM)
+
+response <- quick_llama("What is the capital of France?")
+cat(response)
+```
+
+```
+#> The capital of France is Paris.
+```
+
+`quick_llama()` is a high-level wrapper designed for convenience. On first run, it automatically downloads and caches the default model (`Llama-3.2-3B-Instruct-Q5_K_M.gguf`).
+
+## Text Classification Example
+
+A common use case is classifying text. Here's a sentiment analysis example:
+```{r}
+response <- quick_llama(
+  'Classify the sentiment of the following tweet into one of two
+   categories: Positive or Negative.
+
+   Tweet: "This paper is amazing! I really like it."'
+)
+
+cat(response)
+```
+
+```
+#> The sentiment of this tweet is Positive.
+```
+
+## Processing Multiple Prompts
+
+`quick_llama()` can handle different types of input:
+
+- **Single string**: Performs a single generation
+- **Vector of strings**: Automatically switches to parallel generation mode
+
+```{r}
+# Process multiple prompts at once
+prompts <- c(
+
+  "What is 2 + 2?",
+  "Name one planet in our solar system.",
+  "What color is the sky?"
+)
+
+responses <- quick_llama(prompts)
+print(responses)
+```
+
+```
+#> [1] "2 + 2 equals 4."
+#> [2] "One planet in our solar system is Mars."
+#> [3] "The sky is typically blue during the day."
+```
+
+## Finding and Using Models
+
+### GGUF Format
+
+The `localLLM` backend only supports models in the GGUF format. You can find thousands of GGUF models on [Hugging Face](https://huggingface.co):
+
+1. Search for "gguf" on Hugging Face
+2. Filter by model family (e.g., "gemma gguf", "llama gguf")
+3. Copy the direct URL to the `.gguf` file
+
+### Loading Different Models
+
+```{r}
+# From Hugging Face URL
+response <- quick_llama(
+  "Explain quantum physics simply",
+  model = "https://huggingface.co/unsloth/gemma-3-4b-it-qat-GGUF/resolve/main/gemma-3-4b-it-qat-Q5_K_M.gguf"
+)
+
+# From local file
+response <- quick_llama(
+  "Explain quantum physics simply",
+  model = "/path/to/your/model.gguf"
+)
+
+# From cache (name fragment)
+response <- quick_llama(
+  "Explain quantum physics simply",
+  model = "Llama-3.2"
+)
+```
+
+### Managing Cached Models
+
+```{r}
+# List all cached models
+cached <- list_cached_models()
+print(cached)
+```
+
+```
+#>                                           name      size
+#> 1 Llama-3.2-3B-Instruct-Q5_K_M.gguf           2.1 GB
+#> 2 gemma-3-4b-it-qat-Q5_K_M.gguf               2.8 GB
+```
+
+## Customizing Generation
+
+Control the output with various parameters:
+
+```{r}
+response <- quick_llama(
+  prompt = "Write a haiku about programming",
+  temperature = 0.8,      # Higher = more creative (default: 0)
+
+max_tokens = 100,       # Maximum response length
+  seed = 42,              # For reproducibility
+  n_gpu_layers = 999      # Use GPU if available
+)
+```
+
+## Next Steps
+
+- **[Reproducible Output](reproducible-output.html)**: Learn about deterministic generation and audit trails
+- **[Basic Text Generation](tutorial-basic-generation.html)**: Master the lower-level API for full control
+- **[Parallel Processing](tutorial-parallel-processing.html)**: Efficiently process large datasets
+- **[Model Comparison](tutorial-model-comparison.html)**: Compare multiple LLMs systematically

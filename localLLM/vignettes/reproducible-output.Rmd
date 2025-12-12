@@ -1,0 +1,269 @@
+---
+title: "Reproducible Output"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Reproducible Output}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+Reproducibility is a cornerstone of scientific research. **localLLM** is designed with reproducibility as a first-class feature, ensuring that your LLM-based analyses can be reliably replicated.
+
+## Deterministic Generation by Default
+
+All generation functions in localLLM (`quick_llama()`, `generate()`, and `generate_parallel()`) use **deterministic greedy decoding** with `temperature = 0` by default. This means running the same prompt twice will produce identical results.
+
+```{r}
+library(localLLM)
+
+# Run the same query twice
+response1 <- quick_llama("What is the capital of France?")
+response2 <- quick_llama("What is the capital of France?")
+
+# Results are identical
+identical(response1, response2)
+```
+
+```
+#> [1] TRUE
+```
+
+## Seed Control for Stochastic Generation
+
+When you increase the temperature for more creative outputs, use the `seed` parameter to ensure reproducibility:
+
+```{r}
+# Stochastic generation with seed control
+response1 <- quick_llama(
+  "Write a haiku about data science",
+  temperature = 0.9,
+  seed = 92092
+)
+
+response2 <- quick_llama(
+  "Write a haiku about data science",
+  temperature = 0.9,
+  seed = 92092
+)
+
+# Still reproducible with matching seeds
+identical(response1, response2)
+```
+
+```
+#> [1] TRUE
+```
+
+```{r}
+# Different seeds produce different outputs
+response3 <- quick_llama(
+  "Write a haiku about data science",
+  temperature = 0.9,
+  seed = 12345
+)
+
+identical(response1, response3)
+```
+
+```
+#> [1] FALSE
+```
+
+## Input/Output Hash Verification
+
+All generation functions compute SHA-256 hashes for both inputs and outputs. These hashes enable verification that collaborators used identical configurations and obtained matching results.
+
+```{r}
+result <- quick_llama("What is machine learning?")
+
+# Access the hashes
+hashes <- attr(result, "hashes")
+print(hashes)
+```
+
+```
+#> $input
+#> [1] "a3f2b8c9d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1"
+#>
+#> $output
+#> [1] "b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5"
+```
+
+The input hash includes:
+- Model identifier
+- Prompt text
+- Generation parameters (temperature, seed, max_tokens, etc.)
+
+The output hash covers the generated text, allowing collaborators to verify they obtained matching results.
+
+### Hashes with explore()
+
+For multi-model comparisons, `explore()` computes hashes per model:
+
+```{r}
+res <- explore(
+  models = models,
+  prompts = template_builder,
+  hash = TRUE
+)
+
+# View hashes for each model
+hash_df <- attr(res, "hashes")
+print(hash_df)
+```
+
+```
+#>   model_id                         input_hash                        output_hash
+#> 1  gemma4b a3f2b8c9d4e5f6a7b8c9d0e1f2a3b4c5... b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9...
+#> 2  llama3b c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0... d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1...
+```
+
+Set `hash = FALSE` to disable hash computation if not needed.
+
+## Automatic Documentation
+
+Use `document_start()` and `document_end()` to capture everything that happens during your analysis. The log records:
+
+- Timestamps
+- Model metadata (paths, parameters)
+- Summaries of function calls
+- SHA-256 fingerprint of the entire run
+
+```{r}
+# Start documentation
+document_start(path = "analysis-log.txt")
+
+# Run your analysis
+result1 <- quick_llama("Classify this text: 'Great product!'")
+result2 <- explore(models = models, prompts = prompts)
+
+# End documentation
+document_end()
+```
+
+The log file contains a complete audit trail:
+
+```
+================================================================================
+localLLM Analysis Log
+================================================================================
+Start Time: 2025-01-15 14:30:22 UTC
+R Version: 4.4.0
+localLLM Version: 1.0.2
+Platform: aarch64-apple-darwin22.6.0
+
+--------------------------------------------------------------------------------
+Event: quick_llama call
+Time: 2025-01-15 14:30:25 UTC
+Model: Llama-3.2-3B-Instruct-Q5_K_M.gguf
+Parameters: temperature=0, max_tokens=256, seed=1234
+Input Hash: a3f2b8c9...
+Output Hash: b4c5d6e7...
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+Event: explore call
+Time: 2025-01-15 14:31:45 UTC
+Models: gemma4b, llama3b
+Prompts: 100 samples
+Engine: parallel
+--------------------------------------------------------------------------------
+
+================================================================================
+End Time: 2025-01-15 14:35:12 UTC
+Session Hash: e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2...
+================================================================================
+```
+
+## Best Practices for Reproducible Research
+
+### 1. Always Set Seeds
+
+Even with `temperature = 0`, explicitly setting seeds documents your intent:
+
+```{r}
+result <- quick_llama(
+  "Analyze this text",
+  temperature = 0,
+  seed = 42  # Explicit for documentation
+)
+```
+
+### 2. Log Your Environment
+
+Record your setup at the start of analysis:
+
+```{r}
+# Check hardware profile
+hw <- hardware_profile()
+print(hw)
+```
+
+```
+#> $os
+#> [1] "macOS 14.0"
+#>
+#> $cpu_cores
+#> [1] 10
+#>
+#> $ram_gb
+#> [1] 32
+#>
+#> $gpu
+#> [1] "Apple M2 Pro"
+```
+
+### 3. Use Document Functions for Audit Trails
+
+Wrap your entire analysis in documentation calls:
+
+```{r}
+document_start(path = "my_analysis_log.txt")
+
+# All your analysis code here
+# ...
+
+document_end()
+```
+
+### 4. Share Hashes for Verification
+
+When publishing or sharing results, include hashes so others can verify:
+
+```{r}
+result <- quick_llama("Your prompt here", seed = 42)
+
+# Report these in your paper/documentation
+cat("Input hash:", attr(result, "hashes")$input, "\n")
+cat("Output hash:", attr(result, "hashes")$output, "\n")
+```
+
+### 5. Version Control Your Models
+
+Track which model versions you used:
+
+```{r}
+# List cached models with metadata
+cached <- list_cached_models()
+print(cached[, c("name", "size", "modified")])
+```
+
+## Summary
+
+| Feature | Function/Parameter | Purpose |
+|---------|-------------------|---------|
+| Deterministic output | `temperature = 0` (default) | Same input = same output |
+| Seed control | `seed = 42` | Reproducible stochastic generation |
+| Hash verification | `attr(result, "hashes")` | Verify identical configurations |
+| Audit trails | `document_start()`/`document_end()` | Complete session logging |
+| Hardware info | `hardware_profile()` | Record execution environment |
+
+With these tools, your LLM-based analyses become fully reproducible and verifiable.

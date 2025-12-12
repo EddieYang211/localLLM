@@ -1,0 +1,360 @@
+---
+title: "Model Comparison & Validation"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Model Comparison & Validation}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+When working with LLMs for research, you often need to compare multiple models systematically. The `explore()` function manages batch annotation across models, while `validate()` computes confusion matrices and reliability metrics.
+
+## The explore() Function
+
+`explore()` runs the same prompts through multiple models and returns organized results:
+
+```{r}
+library(localLLM)
+
+# Load sample dataset
+data("ag_news_sample", package = "localLLM")
+
+# Define models to compare
+models <- list(
+  list(
+    id = "gemma4b",
+    model_path = "https://huggingface.co/unsloth/gemma-3-4b-it-qat-GGUF/resolve/main/gemma-3-4b-it-qat-Q5_K_M.gguf",
+    n_gpu_layers = 999,
+    generation = list(max_tokens = 15, seed = 92092)
+  ),
+  list(
+    id = "llama3b",
+    model_path = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
+    n_gpu_layers = 999,
+    generation = list(max_tokens = 15, seed = 92092)
+  )
+)
+```
+
+## Creating Structured Prompts
+
+### Template Builder Format
+
+The template builder creates consistent, structured prompts:
+
+```{r}
+template_builder <- list(
+  sample_id = seq_len(nrow(ag_news_sample)),
+  "Annotation Task" = "Classify the target text into exactly one of following categories: World|Sports|Business|Sci/Tech.",
+  "Examples" = list(
+    list(
+      text = "Australia's Fairfax Eyes Role In Media Shake-Up",
+      label = "Business"
+    )
+  ),
+  "Target Text" = sprintf("%s\n%s", ag_news_sample$title, ag_news_sample$description),
+  "Output Format" = '"World|Sports|Business|Sci/Tech"',
+  "Reminder" = "Your entire response should only be one word and nothing else."
+)
+```
+
+This generates prompts with the structure:
+```
+## Annotation Task: ...
+## Coding Rules: ...
+## Examples: ...
+## Target Text: {{your-text}}
+## Output Format: ...
+```
+
+### Running the Comparison
+
+```{r}
+# Run batch annotation across all models
+annotations <- explore(
+  models = models,
+  prompts = template_builder,
+  batch_size = 25,
+  engine = "parallel",
+  clean = TRUE
+)
+```
+
+### Viewing Results
+
+Results come in two formats:
+
+```{r}
+# Long format: one row per model-sample pair
+head(annotations$annotations)
+```
+
+```
+#>   sample_id model_id    label
+#> 1         1  gemma4b Business
+#> 2         2  gemma4b   Sports
+#> 3         3  gemma4b    World
+#> 4         1  llama3b Business
+#> 5         2  llama3b   Sports
+#> 6         3  llama3b    World
+```
+
+```{r}
+# Wide format: one row per sample, models as columns
+head(annotations$matrix)
+```
+
+```
+#>   sample_id  gemma4b  llama3b
+#> 1         1 Business Business
+#> 2         2   Sports   Sports
+#> 3         3    World    World
+#> 4         4 Sci/Tech Sci/Tech
+```
+
+## Validation Against Ground Truth
+
+Use `validate()` to compare predictions against known labels:
+
+```{r}
+report <- validate(annotations, gold = ag_news_sample$class)
+```
+
+### Confusion Matrices
+
+```{r}
+# Confusion matrix: gemma4b vs gold labels
+print(report$confusion$vs_gold$gemma4b)
+```
+
+```
+#>           Predicted
+#> Actual     Business Sci/Tech Sports World
+#>   Business       23        1      0     1
+#>   Sci/Tech        2       21      0     2
+#>   Sports          0        0     24     1
+#>   World           1        2      1    21
+```
+
+```{r}
+# Pairwise confusion: gemma4b vs llama3b
+print(report$confusion$pairwise$`gemma4b vs llama3b`)
+```
+
+```
+#>           llama3b
+#> gemma4b    Business Sci/Tech Sports World
+#>   Business       22        1      0     0
+#>   Sci/Tech        1       20      0     1
+#>   Sports          0        0     24     0
+#>   World           0        1      0    22
+```
+
+### Reliability Metrics
+
+```{r}
+# Cohen's Kappa (pairwise agreement)
+print(report$reliability$cohen)
+```
+
+```
+#>                        kappa
+#> gemma4b vs llama3b     0.89
+```
+
+```{r}
+# Krippendorff's Alpha (overall agreement)
+print(report$reliability$krippendorff)
+```
+
+```
+#> [1] 0.87
+```
+
+## Alternative Prompt Formats
+
+### Character Vector
+
+If you already have formatted prompts, pass them directly:
+
+```{r}
+# Pre-formatted prompts
+my_prompts <- sprintf(
+  "Classify into World/Sports/Business/Sci/Tech: %s",
+  ag_news_sample$title
+)
+
+result <- explore(
+  models = models,
+  prompts = my_prompts,
+  batch_size = 20,
+  engine = "parallel",
+  clean = TRUE
+)
+```
+
+### Custom Function
+
+For maximum control, use a custom function:
+
+```{r}
+custom_prompts <- function(spec) {
+  data.frame(
+    sample_id = seq_len(nrow(ag_news_sample)),
+    prompt = sprintf(
+      "[%s] Classify into World/Sports/Business/Sci/Tech.\nTitle: %s\nDescription: %s\nAnswer:",
+      spec$id,
+      ag_news_sample$title,
+      ag_news_sample$description
+    ),
+    stringsAsFactors = FALSE
+  )
+}
+
+result <- explore(
+  models = models,
+  prompts = custom_prompts,
+  batch_size = 12,
+  engine = "parallel",
+  clean = TRUE
+)
+```
+
+### Model-Specific Prompts
+
+Each model can have its own prompt strategy:
+
+```{r}
+models <- list(
+  list(
+    id = "gemma4b",
+    model_path = "gemma-model.gguf",
+    prompts = template_builder_for_gemma  # Model-specific
+  ),
+  list(
+    id = "llama3b",
+    model_path = "llama-model.gguf",
+    prompts = template_builder_for_llama  # Different template
+  )
+)
+```
+
+## Streaming Large Datasets
+
+For very large datasets, stream results to disk to keep memory flat:
+
+```{r}
+# Stream annotations to CSV as they're generated
+annotations <- explore(
+  models = models,
+  prompts = template_builder,
+  sink = annotation_sink_csv("annotations.csv"),
+  batch_size = 50,
+  engine = "parallel"
+)
+
+# Results are written incrementally to annotations.csv
+```
+
+## Computing Metrics Separately
+
+You can also compute metrics separately using the low-level functions:
+
+### Confusion Matrices
+
+```{r}
+# Compute confusion matrices directly
+matrices <- compute_confusion_matrices(
+  predictions = annotations$matrix,
+  gold = ag_news_sample$class
+)
+
+# Access individual matrices
+print(matrices$vs_gold$gemma4b)
+print(matrices$pairwise$`gemma4b vs llama3b`)
+```
+
+### Intercoder Reliability
+
+```{r}
+# Compute reliability metrics
+reliability <- intercoder_reliability(annotations$matrix)
+
+print(reliability$cohen)       # Cohen's Kappa
+print(reliability$krippendorff) # Krippendorff's Alpha
+```
+
+## Complete Example
+
+```{r}
+library(localLLM)
+
+# 1. Load data
+data("ag_news_sample", package = "localLLM")
+
+# 2. Set up Hugging Face token if needed
+set_hf_token("hf_your_token_here")
+
+# 3. Define models
+models <- list(
+  list(
+    id = "gemma4b",
+    model_path = "https://huggingface.co/unsloth/gemma-3-4b-it-qat-GGUF/resolve/main/gemma-3-4b-it-qat-Q5_K_M.gguf",
+    n_gpu_layers = 999,
+    generation = list(max_tokens = 15, seed = 92092)
+  ),
+  list(
+    id = "llama3b",
+    model_path = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
+    n_gpu_layers = 999,
+    generation = list(max_tokens = 15, seed = 92092)
+  )
+)
+
+# 4. Create prompts
+template_builder <- list(
+  sample_id = seq_len(nrow(ag_news_sample)),
+  "Annotation Task" = "Classify into: World|Sports|Business|Sci/Tech",
+  "Target Text" = ag_news_sample$title,
+  "Output Format" = "One word only"
+)
+
+# 5. Run comparison
+annotations <- explore(
+  models = models,
+  prompts = template_builder,
+  batch_size = 25,
+  engine = "parallel",
+  clean = TRUE
+)
+
+# 6. Validate
+report <- validate(annotations, gold = ag_news_sample$class)
+
+# 7. Review results
+print(report$confusion$vs_gold$gemma4b)
+print(report$reliability$krippendorff)
+```
+
+## Summary
+
+| Function | Purpose |
+|----------|---------|
+| `explore()` | Run prompts through multiple models |
+| `validate()` | Compute confusion matrices and reliability |
+| `compute_confusion_matrices()` | Low-level confusion matrix computation |
+| `intercoder_reliability()` | Low-level reliability metrics |
+| `annotation_sink_csv()` | Stream results to disk |
+
+## Next Steps
+
+- **[Parallel Processing](tutorial-parallel-processing.html)**: Learn about batch processing
+- **[Reproducible Output](reproducible-output.html)**: Ensure reproducible results

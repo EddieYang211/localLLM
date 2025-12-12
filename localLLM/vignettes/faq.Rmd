@@ -1,0 +1,357 @@
+---
+title: "Frequently Asked Questions"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Frequently Asked Questions}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+## Installation Issues
+
+### "Backend library is not loaded" error
+
+**Problem**: You see the error "Backend library is not loaded. Please run install_localLLM() first."
+
+**Solution**: Run the installation function after loading the package:
+
+```{r}
+library(localLLM)
+install_localLLM()
+```
+
+This downloads the platform-specific backend library. You only need to do this once.
+
+### Installation fails on my platform
+
+**Problem**: `install_localLLM()` fails to download or install.
+
+**Solution**: Check your platform is supported:
+- Windows (x86-64)
+- macOS (ARM64 / Apple Silicon)
+- Linux (x86-64)
+
+If you're on an unsupported platform, you may need to compile llama.cpp manually.
+
+### "Library already installed" but functions don't work
+
+**Problem**: `install_localLLM()` says the library is installed, but generation fails.
+
+**Solution**: Try reinstalling:
+
+```{r}
+# Force reinstall
+install_localLLM(force = TRUE)
+
+# Verify installation
+lib_is_installed()
+```
+
+---
+
+## Model Download Issues
+
+### "Download lock" or "Another download in progress" error
+
+**Problem**: A previous download was interrupted and left a lock file.
+
+**Solution**: Clear the cache directory:
+
+```{r}
+cache_root <- tools::R_user_dir("localLLM", which = "cache")
+models_dir <- file.path(cache_root, "models")
+unlink(models_dir, recursive = TRUE, force = TRUE)
+```
+
+Then try downloading again.
+
+### Download times out or fails
+
+**Problem**: Large model downloads fail partway through.
+
+**Solution**:
+1. Check your internet connection
+2. Try a smaller model first
+3. Download manually and load from local path:
+
+```{r}
+# Download with browser or wget, then:
+model <- model_load("/path/to/downloaded/model.gguf")
+```
+
+### "Model not found" when using cached model
+
+**Problem**: You're trying to load a model by name but it's not found.
+
+**Solution**: Check what's actually cached:
+
+```{r}
+cached <- list_cached_models()
+print(cached)
+```
+
+Use the exact filename or a unique substring that matches only one model.
+
+### Private Hugging Face model fails
+
+**Problem**: Downloading a gated/private model fails with authentication error.
+
+**Solution**: Set your Hugging Face token:
+
+```{r}
+# Get token from https://huggingface.co/settings/tokens
+set_hf_token("hf_your_token_here")
+
+# Now download should work
+model <- model_load("https://huggingface.co/private/model.gguf")
+```
+
+---
+
+## Memory Issues
+
+### R crashes when loading a model
+
+**Problem**: R crashes or freezes when calling `model_load()`.
+
+**Solution**: The model is too large for your available RAM. Try:
+
+1. Use a smaller quantized model (Q4 instead of Q8)
+2. Free up memory by closing other applications
+3. Check model requirements:
+
+```{r}
+hw <- hardware_profile()
+cat("Available RAM:", hw$ram_gb, "GB\n")
+```
+
+### "Memory check failed" warning
+
+**Problem**: localLLM warns about insufficient memory.
+
+**Solution**: The safety check detected potential issues. Options:
+
+1. Use a smaller model
+2. Reduce context size:
+   ```{r}
+   ctx <- context_create(model, n_ctx = 512)  # Smaller context
+   ```
+3. If you're sure you have enough memory, proceed when prompted
+
+### Context creation fails with large n_ctx
+
+**Problem**: Creating a context with large `n_ctx` fails.
+
+**Solution**: Reduce the context size or use a smaller model:
+
+```{r}
+# Instead of n_ctx = 32768, try:
+ctx <- context_create(model, n_ctx = 4096)
+```
+
+---
+
+## GPU Issues
+
+### GPU not being used
+
+**Problem**: Generation is slow even with `n_gpu_layers = 999`.
+
+**Solution**: Check if GPU is detected:
+
+```{r}
+hw <- hardware_profile()
+print(hw$gpu)
+```
+
+If no GPU is listed, the backend may not support your GPU. Currently supported:
+- NVIDIA GPUs (via CUDA)
+- Apple Silicon (Metal)
+
+### "CUDA out of memory" error
+
+**Problem**: GPU runs out of memory during generation.
+
+**Solution**: Reduce GPU layer count:
+
+```{r}
+# Offload fewer layers to GPU
+model <- model_load("model.gguf", n_gpu_layers = 20)
+```
+
+---
+
+## Generation Issues
+
+### Output is garbled or nonsensical
+
+**Problem**: The model produces meaningless text.
+
+**Solution**:
+1. Ensure you're using a chat template:
+   ```{r}
+   messages <- list(
+     list(role = "user", content = "Your question")
+   )
+   prompt <- apply_chat_template(model, messages)
+   result <- generate(ctx, prompt)
+   ```
+
+2. The model file may be corrupted - redownload it
+
+### Output contains strange tokens like `<|eot_id|>`
+
+**Problem**: Output includes control tokens.
+
+**Solution**: Use the `clean = TRUE` parameter:
+
+```{r}
+result <- generate(ctx, prompt, clean = TRUE)
+# or
+result <- quick_llama("prompt", clean = TRUE)
+```
+
+### Generation stops too early
+
+**Problem**: Output is cut off before completion.
+
+**Solution**: Increase `max_tokens`:
+
+```{r}
+result <- quick_llama("prompt", max_tokens = 500)
+```
+
+### Same prompt gives different results
+
+**Problem**: Running the same prompt twice gives different outputs.
+
+**Solution**: Set a seed for reproducibility:
+
+```{r}
+result <- quick_llama("prompt", seed = 42)
+```
+
+With `temperature = 0` (default), outputs should be deterministic.
+
+---
+
+## Performance Issues
+
+### Generation is very slow
+
+**Problem**: Text generation takes much longer than expected.
+
+**Solutions**:
+
+1. **Use GPU acceleration**:
+   ```{r}
+   model <- model_load("model.gguf", n_gpu_layers = 999)
+   ```
+
+2. **Use a smaller model**: Q4 quantization is faster than Q8
+
+3. **Reduce context size**:
+   ```{r}
+   ctx <- context_create(model, n_ctx = 512)
+   ```
+
+4. **Use parallel processing** for multiple prompts:
+   ```{r}
+   results <- quick_llama(c("prompt1", "prompt2", "prompt3"))
+   ```
+
+### Parallel processing isn't faster
+
+**Problem**: `generate_parallel()` is no faster than sequential generation.
+
+**Solution**: Ensure `n_seq_max` is set appropriately:
+
+```{r}
+ctx <- context_create(
+  model,
+  n_ctx = 2048,
+  n_seq_max = 10  # Allow 10 parallel sequences
+)
+```
+
+---
+
+## Compatibility Issues
+
+### "GGUF format required" error
+
+**Problem**: Trying to load a non-GGUF model.
+
+**Solution**: localLLM only supports GGUF format. Convert your model or find a GGUF version on Hugging Face (search for "model-name gguf").
+
+### Model works in Ollama but not localLLM
+
+**Problem**: An Ollama model doesn't work when loaded directly.
+
+**Solution**: Use the Ollama integration:
+
+```{r}
+# List available Ollama models
+list_ollama_models()
+
+# Load via Ollama reference
+model <- model_load("ollama:model-name")
+```
+
+---
+
+## Common Error Messages
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "Backend library is not loaded" | Backend not installed | Run `install_localLLM()` |
+| "Invalid model handle" | Model was freed/invalid | Reload the model |
+| "Invalid context handle" | Context was freed/invalid | Recreate the context |
+| "Failed to open library" | Backend installation issue | Reinstall with `install_localLLM(force = TRUE)` |
+| "Download timeout" | Network issue or lock file | Clear cache and retry |
+
+---
+
+## Getting Help
+
+If you encounter issues not covered here:
+
+1. **Check the documentation**: `?function_name`
+2. **Report bugs**: Email **xu2009@purdue.edu** with:
+   - Your code
+   - The error message
+   - Output of `sessionInfo()`
+   - Output of `hardware_profile()`
+
+---
+
+## Quick Reference
+
+```{r}
+# Check installation status
+lib_is_installed()
+
+# Check hardware
+hardware_profile()
+
+# List cached models
+list_cached_models()
+
+# List Ollama models
+list_ollama_models()
+
+# Clear model cache
+cache_dir <- file.path(tools::R_user_dir("localLLM", "cache"), "models")
+unlink(cache_dir, recursive = TRUE)
+
+# Force reinstall backend
+install_localLLM(force = TRUE)
+```

@@ -1,0 +1,312 @@
+---
+title: "Basic Text Generation"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Basic Text Generation}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+This tutorial covers the lower-level API for full control over text generation. While `quick_llama()` is convenient for simple tasks, the core functions give you fine-grained control over model loading, context management, and generation parameters.
+
+## The Core Workflow
+
+The recommended workflow consists of four steps:
+
+1. **`model_load()`** - Load the model into memory once
+2. **`context_create()`** - Create a reusable context for inference
+3. **`apply_chat_template()`** - Format prompts correctly for the model
+4. **`generate()`** - Generate text from the context
+
+## Step 1: Loading a Model
+
+Use `model_load()` to load a GGUF model into memory:
+
+```{r}
+library(localLLM)
+
+# Load the default model
+model <- model_load("Llama-3.2-3B-Instruct-Q5_K_M.gguf")
+
+# Or load from a URL (downloaded and cached automatically)
+model <- model_load(
+  "https://huggingface.co/unsloth/gemma-3-4b-it-qat-GGUF/resolve/main/gemma-3-4b-it-qat-Q5_K_M.gguf"
+)
+
+# With GPU acceleration (offload layers to GPU)
+model <- model_load(
+  "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
+  n_gpu_layers = 999  # Offload as many layers as possible
+)
+```
+
+### Model Loading Options
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `model_path` | - | Path, URL, or cached model name |
+| `n_gpu_layers` | 0 | Number of layers to offload to GPU |
+| `use_mmap` | TRUE | Memory-map the model file |
+| `use_mlock` | FALSE | Lock model in RAM (prevents swapping) |
+
+## Step 2: Creating a Context
+
+The context manages the inference state and memory allocation:
+
+```{r}
+# Create a context with default settings
+ctx <- context_create(model)
+
+# Create a context with custom settings
+ctx <- context_create(
+  model,
+  n_ctx = 4096,      # Context window size (tokens)
+  n_threads = 8,     # CPU threads for generation
+  n_seq_max = 1      # Maximum parallel sequences
+)
+```
+
+### Context Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `n_ctx` | 512 | Context window size in tokens |
+| `n_threads` | auto | Number of CPU threads |
+| `n_seq_max` | 1 | Max parallel sequences (for batch generation) |
+| `verbosity` | 0 | Logging level (0=quiet, 3=verbose) |
+
+The context window (`n_ctx`) determines how much text the model can "see" at once. Larger values allow longer conversations but use more memory.
+
+## Step 3: Formatting Prompts with Chat Templates
+
+Modern LLMs are trained on specific conversation formats. The `apply_chat_template()` function formats your messages correctly:
+
+```{r}
+# Define a conversation as a list of messages
+messages <- list(
+  list(role = "system", content = "You are a helpful R programming assistant."),
+  list(role = "user", content = "How do I read a CSV file?")
+)
+
+# Apply the model's chat template
+formatted_prompt <- apply_chat_template(model, messages)
+cat(formatted_prompt)
+```
+
+```
+#> <|begin_of_text|><|start_header_id|>system<|end_header_id|>
+#>
+#> You are a helpful R programming assistant.<|eot_id|><|start_header_id|>user<|end_header_id|>
+#>
+#> How do I read a CSV file?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+```
+
+### Multi-Turn Conversations
+
+You can include multiple turns in the conversation:
+
+```{r}
+messages <- list(
+  list(role = "system", content = "You are a helpful assistant."),
+  list(role = "user", content = "What is R?"),
+  list(role = "assistant", content = "R is a programming language for statistical computing."),
+  list(role = "user", content = "How do I install packages?")
+)
+
+formatted_prompt <- apply_chat_template(model, messages)
+```
+
+## Step 4: Generating Text
+
+Use `generate()` to produce text from the formatted prompt:
+
+```{r}
+# Basic generation
+output <- generate(ctx, formatted_prompt)
+cat(output)
+```
+
+```
+#> To read a CSV file in R, you can use the `read.csv()` function:
+#>
+#> ```r
+#> data <- read.csv("your_file.csv")
+#> ```
+```
+
+### Generation Parameters
+
+```{r}
+output <- generate(
+  ctx,
+  formatted_prompt,
+  max_tokens = 200,        # Maximum tokens to generate
+  temperature = 0.0,       # Creativity (0 = deterministic)
+  top_k = 40,              # Consider top K tokens
+  top_p = 1.0,             # Nucleus sampling threshold
+  repeat_last_n = 0,       # Tokens to consider for repetition penalty
+  penalty_repeat = 1.0,    # Repetition penalty (>1 discourages)
+  seed = 1234              # Random seed for reproducibility
+)
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `max_tokens` | 256 | Maximum tokens to generate |
+| `temperature` | 0.0 | Sampling temperature (0 = greedy) |
+| `top_k` | 40 | Top-K sampling |
+| `top_p` | 1.0 | Nucleus sampling (1.0 = disabled) |
+| `repeat_last_n` | 0 | Window for repetition penalty |
+| `penalty_repeat` | 1.0 | Repetition penalty multiplier |
+| `seed` | 1234 | Random seed |
+
+## Complete Example
+
+Here's a complete workflow putting it all together:
+
+```{r}
+library(localLLM)
+
+# 1. Load model with GPU acceleration
+model <- model_load(
+  "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
+  n_gpu_layers = 999
+)
+
+# 2. Create context with appropriate size
+ctx <- context_create(model, n_ctx = 4096)
+
+# 3. Define conversation
+messages <- list(
+  list(
+    role = "system",
+    content = "You are a helpful R programming assistant who provides concise code examples."
+  ),
+  list(
+    role = "user",
+    content = "How do I create a bar plot in ggplot2?"
+  )
+)
+
+# 4. Format prompt
+formatted_prompt <- apply_chat_template(model, messages)
+
+# 5. Generate response
+output <- generate(
+  ctx,
+  formatted_prompt,
+  max_tokens = 300,
+  temperature = 0,
+  seed = 42
+)
+
+cat(output)
+```
+
+```
+#> Here's how to create a bar plot in ggplot2:
+#>
+#> ```r
+#> library(ggplot2)
+#>
+#> # Sample data
+#> df <- data.frame(
+#>   category = c("A", "B", "C", "D"),
+#>   value = c(25, 40, 30, 45)
+#> )
+#>
+#> # Create bar plot
+#> ggplot(df, aes(x = category, y = value)) +
+#>   geom_bar(stat = "identity", fill = "steelblue") +
+#>   theme_minimal() +
+#>   labs(title = "Bar Plot Example", x = "Category", y = "Value")
+#> ```
+```
+
+## Tokenization
+
+For advanced use cases, you can work directly with tokens:
+
+```{r}
+# Convert text to tokens
+tokens <- tokenize(model, "Hello, world!")
+print(tokens)
+```
+
+```
+#> [1] 9906 11  1695   0
+```
+
+```{r}
+# Convert tokens back to text
+text <- detokenize(model, tokens)
+print(text)
+```
+
+```
+#> [1] "Hello, world!"
+```
+
+## Tips and Best Practices
+
+### 1. Reuse Models and Contexts
+
+Loading a model is expensive. Load once and reuse:
+
+```{r}
+# Good: Load once, use many times
+model <- model_load("model.gguf")
+ctx <- context_create(model)
+
+for (prompt in prompts) {
+  result <- generate(ctx, prompt)
+}
+
+# Bad: Loading in a loop
+for (prompt in prompts) {
+  model <- model_load("model.gguf")  # Slow!
+  ctx <- context_create(model)
+  result <- generate(ctx, prompt)
+}
+```
+
+### 2. Size Your Context Appropriately
+
+Larger contexts use more memory. Match `n_ctx` to your needs:
+
+```{r}
+# For short Q&A
+ctx <- context_create(model, n_ctx = 512)
+
+# For longer conversations
+ctx <- context_create(model, n_ctx = 4096)
+
+# For document analysis
+ctx <- context_create(model, n_ctx = 8192)
+```
+
+### 3. Use GPU When Available
+
+GPU acceleration provides 5-10x speedup:
+
+```{r}
+# Check your hardware
+hw <- hardware_profile()
+print(hw$gpu)
+
+# Enable GPU
+model <- model_load("model.gguf", n_gpu_layers = 999)
+```
+
+## Next Steps
+
+- **[Parallel Processing](tutorial-parallel-processing.html)**: Process multiple prompts efficiently
+- **[Model Comparison](tutorial-model-comparison.html)**: Compare multiple models systematically
+- **[Reproducible Output](reproducible-output.html)**: Ensure reproducible results

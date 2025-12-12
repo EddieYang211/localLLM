@@ -10,6 +10,38 @@ home:
     Run LLMs locally using llama.cpp backend with comprehensive
     support for text generation, annotation, and reliability metrics.
 
+navbar:
+  structure:
+    left:  [intro, get-started, reproducible, tutorials, faq, reference, news]
+    right: [search, github]
+  components:
+    get-started:
+      text: Get Started
+      href: articles/get-started.html
+    reproducible:
+      text: Reproducible Output
+      href: articles/reproducible-output.html
+    tutorials:
+      text: Tutorials
+      menu:
+        - text: Basic Text Generation
+          href: articles/tutorial-basic-generation.html
+        - text: Model Comparison & Validation
+          href: articles/tutorial-model-comparison.html
+        - text: Parallel Processing
+          href: articles/tutorial-parallel-processing.html
+        - text: Ollama Integration
+          href: articles/tutorial-ollama-integration.html
+    faq:
+      text: FAQ
+      href: articles/faq.html
+    reference:
+      text: Reference
+      href: reference/index.html
+    news:
+      text: Changelog
+      href: news/index.html
+
 reference:
   - title: Package Overview
     contents:
@@ -81,15 +113,3 @@ reference:
     desc: Example datasets
     contents:
       - ag_news_sample
-
-navbar:
-  structure:
-    left:  [intro, reference, news]
-    right: [github]
-  components:
-    reference:
-      text: Reference
-      href: reference/index.html
-    news:
-      text: Changelog
-      href: news/index.html
