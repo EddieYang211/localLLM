@@ -15,7 +15,7 @@ knitr::opts_chunk$set(
 )
 ```
 
-When working with LLMs for research, you often need to compare multiple models systematically. The `explore()` function manages batch annotation across models, while `validate()` computes confusion matrices and reliability metrics.
+When working with LLMs for research, researchers often want to iterate on prompts/codebooks, compare multiple models, and validate results. The `explore()` function manages batch annotation across models, while `validate()` computes confusion matrices and reliability metrics.
 
 ## The explore() Function
 
@@ -52,7 +52,7 @@ The template builder creates consistent, structured prompts:
 
 ```{r}
 template_builder <- list(
-  sample_id = seq_len(nrow(ag_news_sample)),
+  sample_id = seq_len(nrow(ag_news_sample)), # identifiers, not used in the prompt
   "Annotation Task" = "Classify the target text into exactly one of following categories: World|Sports|Business|Sci/Tech.",
   "Examples" = list(
     list(
@@ -245,23 +245,6 @@ models <- list(
     prompts = template_builder_for_llama  # Different template
   )
 )
-```
-
-## Streaming Large Datasets
-
-For very large datasets, stream results to disk to keep memory flat:
-
-```{r}
-# Stream annotations to CSV as they're generated
-annotations <- explore(
-  models = models,
-  prompts = template_builder,
-  sink = annotation_sink_csv("annotations.csv"),
-  batch_size = 50,
-  engine = "parallel"
-)
-
-# Results are written incrementally to annotations.csv
 ```
 
 ## Computing Metrics Separately

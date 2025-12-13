@@ -1,4 +1,4 @@
-url: https://eddieyang211.github.io/localLLM/
+url: https://www.eddieyang.net/software/localLLM
 
 template:
   bootstrap: 5
@@ -12,7 +12,7 @@ home:
 
 navbar:
   structure:
-    left:  [intro, get-started, reproducible, tutorials, faq, reference, news]
+    left:  [intro, get-started, reproducible, tutorials, faq, reference]
     right: [search, github]
   components:
     get-started:
@@ -38,9 +38,6 @@ navbar:
     reference:
       text: Reference
       href: reference/index.html
-    news:
-      text: Changelog
-      href: news/index.html
 
 reference:
   - title: Package Overview

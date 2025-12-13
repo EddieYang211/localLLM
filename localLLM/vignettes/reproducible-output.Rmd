@@ -19,7 +19,7 @@ Reproducibility is a cornerstone of scientific research. **localLLM** is designe
 
 ## Deterministic Generation by Default
 
-All generation functions in localLLM (`quick_llama()`, `generate()`, and `generate_parallel()`) use **deterministic greedy decoding** with `temperature = 0` by default. This means running the same prompt twice will produce identical results.
+All generation functions in localLLM (`quick_llama()`, `generate()`, and `generate_parallel()`) use **deterministic greedy decoding** by default. This means running the same prompt twice will produce identical results.
 
 ```{r}
 library(localLLM)
@@ -38,7 +38,7 @@ identical(response1, response2)
 
 ## Seed Control for Stochastic Generation
 
-When you increase the temperature for more creative outputs, use the `seed` parameter to ensure reproducibility:
+Reproducibility is ensured even when temperature > 0:
 
 ```{r}
 # Stochastic generation with seed control
