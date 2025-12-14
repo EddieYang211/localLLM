@@ -1,8 +1,8 @@
 # --- FILE: localLLM/R/install.R ---
 
 # Define library version and base URL
-.lib_version <- "1.0.2"
-.base_url <- "https://github.com/EddieYang211/localLLM/releases/download/v1.0.2/"
+.lib_version <- "1.1.0"
+.base_url <- "https://github.com/EddieYang211/localLLM/releases/download/v1.1.0/"
 
 # Get path for local library storage
 .lib_path <- function() {

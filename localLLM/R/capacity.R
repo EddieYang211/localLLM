@@ -47,7 +47,13 @@ hardware_profile <- function(refresh = FALSE) {
 .detect_total_ram_bytes <- function() {
   sysname <- Sys.info()[["sysname"]]
   if (identical(sysname, "Darwin")) {
-    output <- suppressWarnings(system2("sysctl", c("-n", "hw.memsize"), stdout = TRUE))
+    output <- suppressWarnings(tryCatch(
+      system2("sysctl", c("-n", "hw.memsize"), stdout = TRUE, stderr = TRUE),
+      error = function(e) character(0)
+    ))
+    if (!length(output)) {
+      return(NA_real_)
+    }
     bytes <- suppressWarnings(as.numeric(output[1]))
     return(ifelse(is.na(bytes), NA_real_, bytes))
   }
@@ -187,7 +193,7 @@ hardware_profile <- function(refresh = FALSE) {
   }
   if (identical(sysname, "Darwin")) {
     profiler <- suppressWarnings(system2("/usr/sbin/system_profiler",
-                                         c("SPDisplaysDataType"), stdout = TRUE, stderr = FALSE))
+                                         c("SPDisplaysDataType"), stdout = TRUE, stderr = TRUE))
     if (length(profiler)) {
       # Try to detect Apple Silicon GPU
       chipset_line <- profiler[grepl("Chipset Model:", profiler, ignore.case = TRUE)][1]
