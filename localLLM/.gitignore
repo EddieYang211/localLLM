@@ -1,0 +1,26 @@
+# R build artifacts
+src/*.o
+src/*.so
+src/*.dll
+src/Makevars
+src/symbols.rds
+
+# inst artifacts
+inst/lib/
+
+# Vignette outputs
+vignettes/*.html
+vignettes/*.R
+
+# R check
+*.Rcheck/
+..Rcheck/
+
+# RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# macOS
+.DS_Store

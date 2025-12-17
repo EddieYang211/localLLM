@@ -253,7 +253,7 @@ Track which model versions you used:
 ```{r}
 # List cached models with metadata
 cached <- list_cached_models()
-print(cached[, c("name", "size", "modified")])
+print(cached[, c("name", "size_bytes", "modified")])
 ```
 
 ## Summary

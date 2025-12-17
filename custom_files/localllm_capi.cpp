@@ -25,6 +25,25 @@
 #include <sys/sysinfo.h>
 #endif
 
+// Helper string utilities shared across download helpers regardless of curl support
+static bool localllm_string_starts_with(const std::string& str, const std::string& prefix) {
+    return str.size() >= prefix.size() && str.compare(0, prefix.size(), prefix) == 0;
+}
+
+static std::string localllm_basename(const std::string& path) {
+    const size_t pos = path.find_last_of("/\\");
+    return (pos == std::string::npos) ? path : path.substr(pos + 1);
+}
+
+static int localllm_rm_until_substring(std::string& model_, const std::string& substring) {
+    const std::string::size_type pos = model_.find(substring);
+    if (pos == std::string::npos) {
+        return 1;
+    }
+    model_ = model_.substr(pos + substring.size());
+    return 0;
+}
+
 static thread_local std::string last_error_message;
 
 void set_error(const char** error_message, const std::string& msg) { 
@@ -573,18 +592,25 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
         int32_t n_past = 0;
         int32_t n_prompt = 0;
         int32_t n_decoded = 0;
+        int32_t next_pos = 0;
         int32_t i_batch = -1;
         llama_token sampled = 0;
         common_sampler* smpl = nullptr;
         std::string response;
         std::string error_msg;
+        std::vector<llama_token> recent_tokens;  // For multi-token EOG sequence detection
+        bool need_prompt_logit = false;
+        bool priming = false;
     };
 
     auto clean_response_text = [](std::string text) {
         const std::vector<std::string> stop_markers = {
-            "<|im_end|>", "<|im_start|>", "<end_of_turn>", "<start_of_turn>",
+            "<|im_start|>", "<|im_end|>", "<|eot_id|>",
+            "<|start_header_id|>", "<|end_header_id|>",
+            "<end_of_turn>", "<start_of_turn>",
             "</s>", "<s>", "<|endoftext|>", "<|end|>", "<|start|>",
-            "<eos>", "<bos>", "\n<|im_end|>", "\n<end_of_turn>", "\n</s>"
+            "<eos>", "<bos>",
+            "\n<|im_end|>", "\n<end_of_turn>", "\n</s>"
         };
 
         bool found_marker = true;
@@ -634,10 +660,14 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
         slot.n_past = 0;
         slot.n_prompt = 0;
         slot.n_decoded = 0;
+        slot.next_pos = 0;
         slot.i_batch = -1;
         slot.sampled = 0;
         slot.response.clear();
         slot.error_msg.clear();
+        slot.recent_tokens.clear();
+        slot.need_prompt_logit = false;
+        slot.priming = false;
     };
 
     common_params_sampling sparams{};
@@ -770,10 +800,14 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             }
             slot.n_past = slot.prefix_len;
             slot.n_decoded = 0;
+            slot.next_pos = slot.n_prompt;
             slot.i_batch = -1;
             slot.failed = false;
             slot.response.clear();
             slot.error_msg.clear();
+            slot.need_prompt_logit = slot.n_prompt > 0;
+            slot.priming = false;
+            slot.sampled = 0;
 
             slot.smpl = common_sampler_init(model, sparams);
             if (!slot.smpl) {
@@ -812,7 +846,6 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
                 continue;
             }
 
-            slot.sampled = slot.full_tokens->empty() ? 0 : slot.full_tokens->back();
             slot.active = true;
             active_clients++;
             return true;
@@ -847,12 +880,28 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
                 }
 
                 if (slot.n_decoded == 0 && slot.full_tokens && !slot.full_tokens->empty()) {
-                    slot.sampled = slot.full_tokens->back();
+                    // slot.sampled will be set after first actual generation;
+                    // use priming flag to re-evaluate the final prompt token instead
                 }
 
                 slot.i_batch = gen_batch.n_tokens;
-                const int pos = slot.n_past + slot.n_decoded;
-                common_batch_add(gen_batch, slot.sampled, pos, {slot.seq_id}, true);
+                llama_token token_to_feed = slot.sampled;
+                int pos = slot.n_past + slot.n_decoded;
+
+                if (slot.need_prompt_logit) {
+                    slot.priming = true;
+                    token_to_feed = (slot.full_tokens && !slot.full_tokens->empty())
+                        ? slot.full_tokens->back()
+                        : llama_vocab_bos(vocab);
+                    pos = std::max(slot.n_prompt - 1, 0);
+                } else {
+                    slot.priming = false;
+                    token_to_feed = slot.sampled;
+                    pos = slot.next_pos;
+                    slot.next_pos++;
+                }
+
+                common_batch_add(gen_batch, token_to_feed, pos, {slot.seq_id}, true);
                 batch_slots.push_back(i);
             }
 
@@ -901,6 +950,13 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
                         const llama_token new_token = common_sampler_sample(slot.smpl, ctx, batch_pos);
                         common_sampler_accept(slot.smpl, new_token, true);
 
+                        if (slot.priming) {
+                            slot.need_prompt_logit = false;
+                            slot.priming = false;
+                            // Ensure next generated token will be placed right after the prompt
+                            slot.next_pos = slot.n_prompt;
+                        }
+
                         bool should_stop = false;
                         if (new_token == eos_token || llama_vocab_is_eog(vocab, new_token)) {
                             should_stop = true;
@@ -910,10 +966,61 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
                             should_stop = true;
                         }
 
+                        // Multi-token EOG sequence detection (matching generate() logic)
+                        // Must check BEFORE adding token to response
+                        if (!should_stop) {
+                            // Track recent tokens
+                            slot.recent_tokens.push_back(new_token);
+                            if (slot.recent_tokens.size() > 7) {
+                                slot.recent_tokens.erase(slot.recent_tokens.begin());
+                            }
+
+                            if (slot.recent_tokens.size() >= 7) {
+                                // <|eot_id|> sequence: [27, 91, 68, 354, 851, 91, 29]
+                                static const std::vector<llama_token> eot_sequence = {27, 91, 68, 354, 851, 91, 29};
+                                bool is_eot = std::equal(eot_sequence.begin(), eot_sequence.end(),
+                                                         slot.recent_tokens.end() - 7);
+                                if (is_eot) {
+                                    // Remove the first 6 tokens of the sequence from response (7th not added yet)
+                                    std::string tokens_to_remove;
+                                    for (size_t k = 0; k < 6; ++k) {
+                                        llama_token tok = slot.recent_tokens[slot.recent_tokens.size() - 7 + k];
+                                        tokens_to_remove += common_token_to_piece(ctx, tok);
+                                    }
+                                    if (slot.response.length() >= tokens_to_remove.length() &&
+                                        slot.response.substr(slot.response.length() - tokens_to_remove.length()) == tokens_to_remove) {
+                                        slot.response.erase(slot.response.length() - tokens_to_remove.length());
+                                    }
+                                    should_stop = true;
+                                }
+
+                                // <|end_header_id|> sequence: [27, 91, 408, 8932, 851, 91, 29]
+                                if (!should_stop) {
+                                    static const std::vector<llama_token> end_header_sequence = {27, 91, 408, 8932, 851, 91, 29};
+                                    bool is_end_header = std::equal(end_header_sequence.begin(), end_header_sequence.end(),
+                                                                    slot.recent_tokens.end() - 7);
+                                    if (is_end_header) {
+                                        std::string tokens_to_remove;
+                                        for (size_t k = 0; k < 6; ++k) {
+                                            llama_token tok = slot.recent_tokens[slot.recent_tokens.size() - 7 + k];
+                                            tokens_to_remove += common_token_to_piece(ctx, tok);
+                                        }
+                                        if (slot.response.length() >= tokens_to_remove.length() &&
+                                            slot.response.substr(slot.response.length() - tokens_to_remove.length()) == tokens_to_remove) {
+                                            slot.response.erase(slot.response.length() - tokens_to_remove.length());
+                                        }
+                                        should_stop = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Only add token to response if not stopping
                         if (!should_stop) {
                             const std::string token_str = common_token_to_piece(ctx, new_token);
                             slot.response += token_str;
 
+                            // Check for text-based stop patterns
                             if (slot.n_decoded > 5 &&
                                 (slot.response.find("\n\nUser:") != std::string::npos ||
                                  slot.response.find("\n\nHuman:") != std::string::npos)) {
@@ -1084,25 +1191,6 @@ LOCALLLM_API int32_t localllm_token_fim_suf(localllm_model_handle model) {
 #include <sstream>
 #include <iostream>
 #include <iomanip>
-
-// Helper functions for model downloading (using localllm_ prefix to avoid conflicts)
-static bool localllm_string_starts_with(const std::string& str, const std::string& prefix) {
-    return str.size() >= prefix.size() && str.compare(0, prefix.size(), prefix) == 0;
-}
-
-static std::string localllm_basename(const std::string& path) {
-    const size_t pos = path.find_last_of("/\\");
-    return (pos == std::string::npos) ? path : path.substr(pos + 1);
-}
-
-static int localllm_rm_until_substring(std::string& model_, const std::string& substring) {
-    const std::string::size_type pos = model_.find(substring);
-    if (pos == std::string::npos) {
-        return 1;
-    }
-    model_ = model_.substr(pos + substring.size());
-    return 0;
-}
 
 // Progress callback for curl
 struct progress_data {

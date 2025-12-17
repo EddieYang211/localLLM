@@ -5,3 +5,14 @@
 ^tests/\.DS_Store$
 ^.*\.Rproj$
 ^\.Rproj\.user$
+^_pkgdown\.yml$
+^docs$
+^data-raw$
+^cran-comments\.md$
+^src/Makevars$
+^src/.*\.o$
+^src/.*\.so$
+^inst/lib$
+^vignettes/.*\.R$
+^vignettes/.*\.html$
+^\.\.Rcheck$

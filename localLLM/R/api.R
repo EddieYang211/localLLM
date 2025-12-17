@@ -473,6 +473,23 @@ generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, 
   }
   
   prompts_chr <- as.character(prompts)
+  n_prompts <- length(prompts_chr)
+  ctx_seq_max <- attr(context, "n_seq_max")
+  ctx_seq_max <- if (is.null(ctx_seq_max)) 1L else as.integer(ctx_seq_max)
+  required_seq_max <- max(2L, n_prompts + 1L)
+
+  if (n_prompts > 1L && ctx_seq_max < required_seq_max) {
+    stop(
+      sprintf(
+        paste0(
+          "Context was created with n_seq_max = %d but %d prompts require at least %d ",
+          "parallel sequences. Recreate the context via context_create(..., n_seq_max = %d)."
+        ),
+        ctx_seq_max, n_prompts, required_seq_max, required_seq_max
+      ),
+      call. = FALSE
+    )
+  }
 
   # Validate each prompt's parameters before generation
   n_ctx <- attr(context, "n_ctx")
