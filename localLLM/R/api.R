@@ -462,6 +462,9 @@ generate <- function(context, prompt, max_tokens = 100L, top_k = 40L, top_p = 1.
 #' @param hash When `TRUE` (default), computes SHA-256 hashes for the supplied prompts and
 #'   generated outputs. Hashes are attached via the `"hashes"` attribute for
 #'   later inspection.
+#' @details When more prompts are supplied than the context can hold in parallel
+#'   (`n_seq_max - 1`), the function automatically processes them in sequential
+#'   batches while preserving the original ordering of results.
 #' @return Character vector of generated texts
 #' @export
 generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, top_p = 1.0,
@@ -475,21 +478,12 @@ generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, 
   prompts_chr <- as.character(prompts)
   n_prompts <- length(prompts_chr)
   ctx_seq_max <- attr(context, "n_seq_max")
-  ctx_seq_max <- if (is.null(ctx_seq_max)) 1L else as.integer(ctx_seq_max)
-  required_seq_max <- max(2L, n_prompts + 1L)
-
-  if (n_prompts > 1L && ctx_seq_max < required_seq_max) {
-    stop(
-      sprintf(
-        paste0(
-          "Context was created with n_seq_max = %d but %d prompts require at least %d ",
-          "parallel sequences. Recreate the context via context_create(..., n_seq_max = %d)."
-        ),
-        ctx_seq_max, n_prompts, required_seq_max, required_seq_max
-      ),
-      call. = FALSE
-    )
-  }
+  ctx_seq_max <- if (is.null(ctx_seq_max) || is.na(ctx_seq_max) || ctx_seq_max < 1L) 1L else as.integer(ctx_seq_max)
+  per_call_capacity <- if (ctx_seq_max <= 1L) 1L else max(1L, as.integer(ctx_seq_max - 1L))
+  needs_batching <- n_prompts > per_call_capacity
+  progress_flag <- as.logical(progress)
+  progress_flag <- if (length(progress_flag)) progress_flag[[1]] else FALSE
+  progress_bool <- isTRUE(progress_flag)
 
   # Validate each prompt's parameters before generation
   n_ctx <- attr(context, "n_ctx")
@@ -503,30 +497,10 @@ generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, 
     .validate_generation_params(tokens, max_tokens, n_ctx)
   }
 
-  result <- .Call("c_r_generate_parallel",
-                  context,
-                  prompts_chr,
-                  as.integer(max_tokens),
-                  as.integer(top_k),
-                  as.numeric(top_p),
-                  as.numeric(temperature),
-                  as.integer(repeat_last_n),
-                  as.numeric(penalty_repeat),
-                  as.integer(seed),
-                  as.logical(progress))
-
-  if (isTRUE(clean)) {
-    if (is.list(result)) {
-      result <- lapply(result, .clean_output)
-    } else if (is.character(result)) {
-      result <- vapply(result, .clean_output, character(1), USE.NAMES = TRUE)
-    }
-  }
-
   if (isTRUE(hash)) {
     input_payload <- list(
       type = "generate_parallel",
-      model = .hash_model_identifier(attr(context, "model")),
+      model = .hash_model_identifier(model),
       prompts = prompts_chr,
       params = list(
         max_tokens = max_tokens,
@@ -537,11 +511,66 @@ generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, 
         penalty_repeat = penalty_repeat,
         seed = seed,
         clean = isTRUE(clean),
-        progress = isTRUE(progress)
+        progress = progress_bool
       )
     )
-    output_payload <- list(type = "generate_parallel", output = result)
     input_hash <- .hash_payload(input_payload)
+  } else {
+    input_hash <- NULL
+  }
+
+  run_parallel_batch <- function(batch_prompts, show_progress_flag) {
+    .Call("c_r_generate_parallel",
+          context,
+          batch_prompts,
+          as.integer(max_tokens),
+          as.integer(top_k),
+          as.numeric(top_p),
+          as.numeric(temperature),
+          as.integer(repeat_last_n),
+          as.numeric(penalty_repeat),
+          as.integer(seed),
+          as.logical(show_progress_flag))
+  }
+
+  manual_progress <- needs_batching && progress_bool
+  result <- NULL
+  if (!needs_batching) {
+    result <- run_parallel_batch(prompts_chr, progress_flag)
+  } else {
+    result <- character(n_prompts)
+    idx_all <- seq_len(n_prompts)
+    batches <- split(idx_all, ceiling(idx_all / per_call_capacity))
+    processed <- 0L
+    progress_bar <- NULL
+    if (manual_progress) {
+      progress_bar <- utils::txtProgressBar(min = 0, max = n_prompts, style = 3)
+      on.exit({
+        if (!is.null(progress_bar)) close(progress_bar)
+      }, add = TRUE)
+    }
+
+    for (idx_chunk in batches) {
+      chunk_prompts <- prompts_chr[idx_chunk]
+      chunk_result <- run_parallel_batch(chunk_prompts, FALSE)
+      result[idx_chunk] <- chunk_result
+      if (manual_progress && !is.null(progress_bar)) {
+        processed <- processed + length(idx_chunk)
+        utils::setTxtProgressBar(progress_bar, processed)
+      }
+    }
+  }
+
+  if (isTRUE(clean)) {
+    if (is.list(result)) {
+      result <- lapply(result, .clean_output)
+    } else if (is.character(result)) {
+      result <- vapply(result, .clean_output, character(1), USE.NAMES = TRUE)
+    }
+  }
+
+  if (isTRUE(hash)) {
+    output_payload <- list(type = "generate_parallel", output = result)
     output_hash <- .hash_payload(output_payload)
     result <- .hash_attach_metadata(result, input_hash, output_hash, "generate_parallel")
   }
