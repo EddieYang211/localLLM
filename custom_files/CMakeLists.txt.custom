@@ -172,7 +172,12 @@ if(USE_OBJECT_LIBRARIES)
     # Add Metal backend sources if enabled
     if(APPLE AND GGML_METAL)
         target_sources(localllm PRIVATE
-            ggml/src/ggml-metal/ggml-metal.m
+            ggml/src/ggml-metal/ggml-metal.cpp
+            ggml/src/ggml-metal/ggml-metal-device.m
+            ggml/src/ggml-metal/ggml-metal-device.cpp
+            ggml/src/ggml-metal/ggml-metal-common.cpp
+            ggml/src/ggml-metal/ggml-metal-context.m
+            ggml/src/ggml-metal/ggml-metal-ops.cpp
         )
         
         # Handle Metal shader embedding
