@@ -221,6 +221,17 @@ if(USE_OBJECT_LIBRARIES)
     
     # Link with static libraries for additional functionality
     target_link_libraries(localllm PRIVATE llama common ggml)
+
+    # Linux-specific: Replace static libgomp.a with dynamic libgomp.so
+    if(UNIX AND NOT APPLE)
+        # Remove any static OpenMP that might have been pulled in
+        target_link_options(localllm PRIVATE "-Wl,--exclude-libs,libgomp.a")
+        # Explicitly link dynamic OpenMP
+        find_package(OpenMP)
+        if(OpenMP_CXX_FOUND)
+            target_link_libraries(localllm PRIVATE OpenMP::OpenMP_CXX)
+        endif()
+    endif()
     
 else()
     message(STATUS "🎯 Using pure glue-code architecture")
@@ -266,17 +277,6 @@ endif()
 # Link essential system libraries for all platforms
 if(UNIX)
     target_link_libraries(localllm PRIVATE m pthread)
-
-    # Linux-specific: Link dynamic OpenMP library for shared library compatibility
-    if(NOT APPLE)
-        # Find OpenMP and ensure we link the dynamic version
-        find_package(OpenMP)
-        if(OpenMP_CXX_FOUND)
-            # Force linking dynamic gomp instead of static libgomp.a
-            target_link_libraries(localllm PRIVATE OpenMP::OpenMP_CXX)
-            target_compile_options(localllm PRIVATE ${OpenMP_CXX_FLAGS})
-        endif()
-    endif()
 endif()
 
 # Link Apple frameworks if on macOS
