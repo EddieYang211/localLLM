@@ -297,6 +297,13 @@ if(APPLE)
     endif()
 endif()
 
+# Add GGML version compile definitions (required by b7825)
+# These macros are used in ggml.c by ggml_version() and ggml_commit()
+target_compile_definitions(localllm PRIVATE
+    GGML_VERSION="${GGML_VERSION}"
+    GGML_COMMIT="${GGML_BUILD_COMMIT}"
+)
+
 # Add necessary include directories
 target_include_directories(localllm PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
