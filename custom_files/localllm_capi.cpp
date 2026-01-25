@@ -264,6 +264,7 @@ LOCALLLM_API localllm_error_code localllm_context_create(localllm_model_handle m
     llama_context_params ctx_params = llama_context_default_params(); 
     ctx_params.n_ctx = n_ctx; 
     ctx_params.n_threads = n_threads; 
+    ctx_params.n_threads_batch = n_threads;
     ctx_params.n_seq_max = n_seq_max; 
     llama_context* ctx = llama_init_from_model(model, ctx_params); 
     if (ctx == nullptr) { 
@@ -369,16 +370,24 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
     }
 
     // Fix: clear the KV cache to keep runs reproducible
-    llama_kv_self_clear(ctx);
+    llama_memory_t mem = llama_get_memory(ctx);
+    llama_memory_clear(mem, true);
 
     const llama_model* model = llama_get_model(ctx);
     const struct llama_vocab* vocab = llama_model_get_vocab(model);
     llama_token eos_token = llama_vocab_eos(vocab);
-    llama_batch batch = llama_batch_get_one((llama_token*)tokens_in, n_tokens_in);
+    llama_batch batch = llama_batch_init(static_cast<int32_t>(n_tokens_in), 0, 1);
+    for (size_t i = 0; i < n_tokens_in; ++i) {
+        common_batch_add(batch, static_cast<llama_token>(tokens_in[i]), static_cast<llama_pos>(i), {0}, i == n_tokens_in - 1);
+    }
     if (llama_decode(ctx, batch) != 0) {
+        llama_batch_free(batch);
+        llama_memory_clear(mem, true);
         set_error(error_message, "Failed to decode input tokens.");
         return LOCALLLM_ERROR;
     }
+    llama_batch_free(batch);
+    llama_pos n_past = static_cast<llama_pos>(n_tokens_in);
 
     common_params_sampling sparams{};
     sparams.top_k = top_k;
@@ -473,11 +482,16 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
         const std::string token_str = common_token_to_piece(ctx, new_token);
         generated_text += token_str;
 
-        llama_batch next_batch = llama_batch_get_one(&new_token, 1);
+        llama_batch next_batch = llama_batch_init(1, 0, 1);
+        common_batch_add(next_batch, new_token, n_past, {0}, true);
         if (llama_decode(ctx, next_batch) != 0) {
+            llama_batch_free(next_batch);
+            llama_memory_clear(mem, true);
             set_error(error_message, "Failed to decode generated token.");
             return LOCALLLM_ERROR;
         }
+        llama_batch_free(next_batch);
+        n_past += 1;
     }
 
     *result_out = string_to_c_str(generated_text);
@@ -498,6 +512,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
         return LOCALLLM_ERROR;
     }
 
+    llama_memory_t mem = llama_get_memory(ctx);
     const llama_model* model = llama_get_model(ctx);
     const llama_vocab* vocab = llama_model_get_vocab(model);
     const llama_token eos_token = llama_vocab_eos(vocab);
@@ -535,7 +550,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
         }
     }
 
-    llama_kv_self_clear(ctx);
+    llama_memory_clear(mem, true);
     bool prefix_ready = false;
     std::vector<llama_token> shared_prefix_tokens;
     if (shared_prefix_len > 0) {
@@ -574,7 +589,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
         llama_batch_free(prefix_batch);
 
         if (!prefix_ok) {
-            llama_kv_self_clear(ctx);
+            llama_memory_clear(mem, true);
         } else {
             prefix_ready = true;
         }
@@ -746,7 +761,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
         }
 
         if (slot.seq_id > 0) {
-            llama_kv_self_seq_rm(ctx, slot.seq_id, 0, -1);
+            llama_memory_seq_rm(mem, slot.seq_id, 0, -1);
         }
 
         if (success) {
@@ -834,12 +849,12 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             n_total_prompt += slot.n_prompt;
 
             if (prefix_ready && slot.prefix_len > 0) {
-                llama_kv_self_seq_cp(ctx, 0, slot.seq_id, -1, -1);
+                llama_memory_seq_cp(mem, 0, slot.seq_id, -1, -1);
             }
 
             if (!decode_prompt_tokens(slot)) {
                 if (slot.seq_id > 0) {
-                    llama_kv_self_seq_rm(ctx, slot.seq_id, 0, -1);
+                    llama_memory_seq_rm(mem, slot.seq_id, 0, -1);
                 }
                 final_responses[slot.global_index] = "[ERROR] " + slot.error_msg;
                 release_slot(slot);
@@ -1075,7 +1090,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
         }
 
         if (prefix_ready) {
-            llama_kv_self_seq_rm(ctx, 0, 0, -1);
+            llama_memory_seq_rm(mem, 0, 0, -1);
         }
 
         *results_out = new char*[n_prompts];
@@ -1103,7 +1118,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             fprintf(stderr, "\r [==============================] %d/%d (100%%)\n", total_prompts, total_prompts);
             fflush(stderr);
         }
-        llama_kv_self_clear(ctx);
+        llama_memory_clear(mem, true);
         set_error(error_message, std::string("Parallel generation failed: ") + e.what());
         return LOCALLLM_ERROR;
     }

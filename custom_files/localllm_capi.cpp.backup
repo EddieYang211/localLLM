@@ -11,17 +11,38 @@
 #include "common/sampling.h"
 #include <string>
 #include <vector>
+#include <memory>
 #include <stdexcept>
 #include <cstring>
 #include <ctime>
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <cstdio>
 #ifdef __APPLE__
 #include <sys/sysctl.h>
 #elif defined(__linux__)
 #include <sys/sysinfo.h>
 #endif
+
+// Helper string utilities shared across download helpers regardless of curl support
+static bool localllm_string_starts_with(const std::string& str, const std::string& prefix) {
+    return str.size() >= prefix.size() && str.compare(0, prefix.size(), prefix) == 0;
+}
+
+static std::string localllm_basename(const std::string& path) {
+    const size_t pos = path.find_last_of("/\\");
+    return (pos == std::string::npos) ? path : path.substr(pos + 1);
+}
+
+static int localllm_rm_until_substring(std::string& model_, const std::string& substring) {
+    const std::string::size_type pos = model_.find(substring);
+    if (pos == std::string::npos) {
+        return 1;
+    }
+    model_ = model_.substr(pos + substring.size());
+    return 0;
+}
 
 static thread_local std::string last_error_message;
 
@@ -30,6 +51,82 @@ void set_error(const char** error_message, const std::string& msg) {
         last_error_message = msg; 
         *error_message = last_error_message.c_str(); 
     } 
+}
+
+// Verbosity-controlled log callback
+static thread_local int current_verbosity = 1; // Default verbosity level
+static thread_local ggml_log_callback original_log_callback = nullptr;
+static thread_local void* original_log_user_data = nullptr;
+
+static void verbosity_log_callback(ggml_log_level level, const char* text, void* user_data) {
+    int verbosity = current_verbosity;
+    
+    // Silent mode: suppress all logging for negative values
+    if (verbosity < 0) {
+        return;
+    }
+
+    // Filter messages based on verbosity level (3=most, 2,1,0=decreasing)
+    bool should_log = false;
+    switch (verbosity) {
+        case 3: // Show all (DEBUG + INFO + WARN + ERROR) - Most verbose
+            should_log = true;
+            break;
+        case 2: // Show important info (INFO + WARN + ERROR)
+            should_log = (level >= GGML_LOG_LEVEL_INFO);
+            break;
+        case 1: // Show warnings and errors only (WARN + ERROR) - Default
+            should_log = (level >= GGML_LOG_LEVEL_WARN);
+            break;
+        case 0: // Show errors only - Least verbose
+            should_log = (level >= GGML_LOG_LEVEL_ERROR);
+            break;
+        default:
+            should_log = (level >= GGML_LOG_LEVEL_WARN); // Fallback to level 1 (default)
+            break;
+    }
+    
+    if (should_log) {
+        if (original_log_callback) {
+            original_log_callback(level, text, original_log_user_data);
+        } else {
+            // Default behavior: print to stderr
+            fprintf(stderr, "%s", text);
+            fflush(stderr);
+        }
+    }
+}
+
+// Set verbosity for logging
+static void set_log_verbosity(int verbosity) {
+    current_verbosity = verbosity;
+
+    // Store original callback if not already stored
+    if (original_log_callback == nullptr) {
+        // Note: We can't easily get the current callback, so we'll assume default behavior
+        original_log_callback = nullptr; // Will use default stderr output
+        original_log_user_data = nullptr;
+    }
+
+    // New: Handle negative verbosity with a silent callback
+    if (verbosity < 0) {
+        // Set a callback that does nothing - completely silent
+        llama_log_set([](ggml_log_level level, const char* text, void* user_data) {
+            // Do nothing - complete silence
+        }, nullptr);
+    } else {
+        // Set our custom callback for filtering
+        llama_log_set(verbosity_log_callback, nullptr);
+    }
+}
+
+// Restore original logging
+static void restore_log_callback() {
+    if (original_log_callback) {
+        llama_log_set(original_log_callback, original_log_user_data);
+    } else {
+        llama_log_set(nullptr, nullptr); // Restore default behavior
+    }
 }
 
 static char* string_to_c_str(const std::string& s) { 
@@ -80,11 +177,15 @@ LOCALLLM_API localllm_error_code localllm_model_load(const char* model_path, int
 }
 
 // Enhanced model loading with memory checking
-LOCALLLM_API localllm_error_code localllm_model_load_safe(const char* model_path, int n_gpu_layers, bool use_mmap, bool use_mlock, bool check_memory, localllm_model_handle* model_handle_out, const char** error_message) {
+LOCALLLM_API localllm_error_code localllm_model_load_safe(const char* model_path, int n_gpu_layers, bool use_mmap, bool use_mlock, bool check_memory, int verbosity, localllm_model_handle* model_handle_out, const char** error_message) {
+    // Set verbosity level for this function call
+    set_log_verbosity(verbosity);
+    
     try {
         // Check if file exists and is valid
         std::ifstream file(model_path, std::ios::binary);
         if (!file.is_open()) {
+            restore_log_callback();
             set_error(error_message, std::string("Cannot open model file: ") + model_path);
             return LOCALLLM_ERROR;
         }
@@ -98,6 +199,7 @@ LOCALLLM_API localllm_error_code localllm_model_load_safe(const char* model_path
         char magic[4];
         file.read(magic, 4);
         if (magic[0] != 'G' || magic[1] != 'G' || magic[2] != 'U' || magic[3] != 'F') {
+            restore_log_callback();
             set_error(error_message, "Invalid GGUF file format");
             return LOCALLLM_ERROR;
         }
@@ -112,6 +214,7 @@ LOCALLLM_API localllm_error_code localllm_model_load_safe(const char* model_path
             
             bool memory_ok = localllm_check_memory_available(estimated_memory, error_message);
             if (!memory_ok) {
+                restore_log_callback();
                 set_error(error_message, "Insufficient memory for model loading");
                 return LOCALLLM_ERROR;
             }
@@ -125,17 +228,21 @@ LOCALLLM_API localllm_error_code localllm_model_load_safe(const char* model_path
         
         llama_model* model = llama_model_load_from_file(model_path, model_params);
         if (model == nullptr) {
+            restore_log_callback();
             set_error(error_message, std::string("Failed to load model from path: ") + model_path + ". This may be due to insufficient memory, corrupted file, or unsupported model format.");
             return LOCALLLM_ERROR;
         }
         
         *model_handle_out = model;
+        restore_log_callback();
         return LOCALLLM_SUCCESS;
         
     } catch (const std::exception& e) {
+        restore_log_callback();
         set_error(error_message, std::string("Exception during model loading: ") + e.what());
         return LOCALLLM_ERROR;
     } catch (...) {
+        restore_log_callback();
         set_error(error_message, "Unknown exception during model loading");
         return LOCALLLM_ERROR;
     }
@@ -145,21 +252,28 @@ LOCALLLM_API void localllm_model_free(localllm_model_handle model) {
     if (model) llama_model_free(model); 
 }
 
-LOCALLLM_API localllm_error_code localllm_context_create(localllm_model_handle model, int n_ctx, int n_threads, int n_seq_max, localllm_context_handle* context_handle_out, const char** error_message) { 
+LOCALLLM_API localllm_error_code localllm_context_create(localllm_model_handle model, int n_ctx, int n_threads, int n_seq_max, int verbosity, localllm_context_handle* context_handle_out, const char** error_message) { 
+    // Set verbosity level for this function call
+    set_log_verbosity(verbosity);
+    
     if (!model) { 
+        restore_log_callback();
         set_error(error_message, "Model handle is null."); 
         return LOCALLLM_ERROR; 
     } 
     llama_context_params ctx_params = llama_context_default_params(); 
     ctx_params.n_ctx = n_ctx; 
     ctx_params.n_threads = n_threads; 
+    ctx_params.n_threads_batch = n_threads;
     ctx_params.n_seq_max = n_seq_max; 
     llama_context* ctx = llama_init_from_model(model, ctx_params); 
     if (ctx == nullptr) { 
+        restore_log_callback();
         set_error(error_message, "Failed to create context from model."); 
         return LOCALLLM_ERROR; 
     } 
     *context_handle_out = ctx; 
+    restore_log_callback();
     return LOCALLLM_SUCCESS; 
 }
 
@@ -202,6 +316,11 @@ LOCALLLM_API void localllm_free_tokens(int32_t* tokens) {
 }
 
 LOCALLLM_API localllm_error_code localllm_apply_chat_template(localllm_model_handle model, const char* tmpl, const struct localllm_chat_message* messages_in, size_t n_messages, bool add_ass, char** result_out, const char** error_message) { 
+    if (!model) {
+        set_error(error_message, "Model handle is null.");
+        return LOCALLLM_ERROR;
+    }
+
     std::vector<llama_chat_message> messages_vec(n_messages); 
     size_t total_length = 0; 
     for(size_t i = 0; i < n_messages; ++i) { 
@@ -210,303 +329,799 @@ LOCALLLM_API localllm_error_code localllm_apply_chat_template(localllm_model_han
     } 
     size_t buffer_size = total_length * 2 + 2048; 
     std::vector<char> buffer(buffer_size, 0); 
-    int32_t res = llama_chat_apply_template(tmpl, messages_vec.data(), n_messages, add_ass, buffer.data(), buffer.size()); 
+    
+    // Fix: implement built-in chat template support with a two-step flow
+    // Step 1: decide which template to use
+    const char* effective_tmpl = tmpl; // template provided by the caller
+    if (!effective_tmpl) {
+        // If no custom template is provided, fall back to the model default
+        effective_tmpl = llama_model_chat_template(model, nullptr);
+    }
+
+    // Step 2: call llama_chat_apply_template (standard 6-parameter version)
+    int32_t res = llama_chat_apply_template(effective_tmpl, messages_vec.data(), n_messages, add_ass, buffer.data(), buffer.size()); 
+    
     if (res < 0) { 
-        set_error(error_message, "Failed to apply chat template. Error code: " + std::to_string(res)); 
+        // Provide more detailed error information
+        std::string error_msg = "Failed to apply chat template. Error code: " + std::to_string(res);
+        if (res == -1) {
+            error_msg += " (template not found or invalid)";
+        } else if (res == -2) {
+            error_msg += " (buffer too small)";
+        }
+        if (tmpl) {
+            error_msg += ". Custom template used: " + std::string(tmpl, 0, 100) + "...";
+        } else {
+            error_msg += ". Using model's built-in template.";
+        }
+        set_error(error_message, error_msg); 
         return LOCALLLM_ERROR; 
     } 
+    
     *result_out = string_to_c_str(std::string(buffer.data(), res)); 
     return LOCALLLM_SUCCESS; 
 }
 
-LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, const int32_t* tokens_in, size_t n_tokens_in, int max_tokens, int top_k, float top_p, float temperature, int repeat_last_n, float penalty_repeat, int32_t seed, char** result_out, const char** error_message) { 
-    if (!ctx) { 
-        set_error(error_message, "Context handle is null."); 
-        return LOCALLLM_ERROR; 
-    } 
-    const llama_model* model = llama_get_model(ctx); 
-    const struct llama_vocab* vocab = llama_model_get_vocab(model); 
-    llama_token eos_token = llama_vocab_eos(vocab); 
-    llama_batch batch = llama_batch_get_one((llama_token*)tokens_in, n_tokens_in); 
-    if (llama_decode(ctx, batch) != 0) { 
-        set_error(error_message, "Failed to decode input tokens."); 
-        return LOCALLLM_ERROR; 
-    } 
-    struct llama_sampler_chain_params sparams_chain = llama_sampler_chain_default_params(); 
-    struct llama_sampler* sampler_chain = llama_sampler_chain_init(sparams_chain); 
-    llama_sampler_chain_add(sampler_chain, llama_sampler_init_penalties(repeat_last_n, penalty_repeat, 0.0f, 0.0f)); 
-    llama_sampler_chain_add(sampler_chain, llama_sampler_init_top_k(top_k)); 
-    llama_sampler_chain_add(sampler_chain, llama_sampler_init_top_p(top_p, 1)); 
-    llama_sampler_chain_add(sampler_chain, llama_sampler_init_temp(temperature)); 
-    uint32_t final_seed = (seed < 0) ? time(NULL) : seed; 
-    llama_sampler_chain_add(sampler_chain, llama_sampler_init_dist(final_seed)); 
-    std::string generated_text; 
-    for (int i = 0; i < max_tokens; ++i) { 
-        llama_token new_token = llama_sampler_sample(sampler_chain, ctx, -1); 
-        llama_sampler_accept(sampler_chain, new_token); 
-        if (new_token == eos_token || llama_vocab_is_eog(vocab, new_token)) break; 
-        generated_text += common_token_to_piece(ctx, new_token); 
-        llama_batch next_batch = llama_batch_get_one(&new_token, 1); 
-        if (llama_decode(ctx, next_batch) != 0) { 
-            llama_sampler_free(sampler_chain); 
-            set_error(error_message, "Failed to decode generated token."); 
-            return LOCALLLM_ERROR; 
-        } 
-    } 
-    llama_sampler_free(sampler_chain); 
-    *result_out = string_to_c_str(generated_text); 
-    return LOCALLLM_SUCCESS; 
+
+LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, const int32_t* tokens_in, size_t n_tokens_in, int max_tokens, int top_k, float top_p, float temperature, int repeat_last_n, float penalty_repeat, int32_t seed, char** result_out, const char** error_message) {
+    if (!ctx) {
+        set_error(error_message, "Context handle is null.");
+        return LOCALLLM_ERROR;
+    }
+
+    // Fix: clear the KV cache to keep runs reproducible
+    llama_memory_t mem = llama_get_memory(ctx);
+    llama_memory_clear(mem, true);
+
+    const llama_model* model = llama_get_model(ctx);
+    const struct llama_vocab* vocab = llama_model_get_vocab(model);
+    llama_token eos_token = llama_vocab_eos(vocab);
+    llama_batch batch = llama_batch_init(static_cast<int32_t>(n_tokens_in), 0, 1);
+    for (size_t i = 0; i < n_tokens_in; ++i) {
+        common_batch_add(batch, static_cast<llama_token>(tokens_in[i]), static_cast<llama_pos>(i), {0}, i == n_tokens_in - 1);
+    }
+    if (llama_decode(ctx, batch) != 0) {
+        llama_batch_free(batch);
+        llama_memory_clear(mem, true);
+        set_error(error_message, "Failed to decode input tokens.");
+        return LOCALLLM_ERROR;
+    }
+    llama_batch_free(batch);
+    llama_pos n_past = static_cast<llama_pos>(n_tokens_in);
+
+    common_params_sampling sparams{};
+    sparams.top_k = top_k;
+    sparams.top_p = top_p;
+    sparams.temp = temperature;
+    sparams.penalty_last_n = repeat_last_n;
+    sparams.penalty_repeat = penalty_repeat;
+    sparams.seed = (seed < 0) ? time(NULL) : seed;
+    sparams.min_keep = 1;
+
+    struct common_sampler* sampler = common_sampler_init(model, sparams);
+    if (!sampler) {
+        set_error(error_message, "Failed to initialize sampler chain.");
+        return LOCALLLM_ERROR;
+    }
+
+    std::unique_ptr<common_sampler, decltype(&common_sampler_free)> sampler_guard(sampler, common_sampler_free);
+
+    std::string generated_text;
+    std::vector<llama_token> recent_tokens; // Keep a sliding window of tokens for sequence detection
+
+    for (int i = 0; i < max_tokens; ++i) {
+        llama_token new_token = common_sampler_sample(sampler_guard.get(), ctx, -1);
+        common_sampler_accept(sampler_guard.get(), new_token, true);
+
+        // Fix: combine standard EOG detection + multi-token sequence detection
+
+        // 1. Standard single-token EOG detection (retain official logic)
+        if (llama_vocab_is_eog(vocab, new_token)) {
+            break; // Stop generation immediately, do not add to output
+        }
+
+        // 2. Multi-token EOG sequence detection (based on diagnostic script's accurate token sequences)
+        recent_tokens.push_back(new_token);
+        if (recent_tokens.size() > 7) {  // Keep a sliding window of last 7 tokens
+            recent_tokens.erase(recent_tokens.begin());
+        }
+
+        // Detect full EOG token sequences and exit before the final token is emitted
+        if (recent_tokens.size() >= 7) {
+            // <|eot_id|> sequence: [27, 91, 68, 354, 851, 91, 29]
+            std::vector<llama_token> eot_sequence = {27, 91, 68, 354, 851, 91, 29};
+            bool is_eot_complete = true;
+            for (size_t j = 0; j < 7; ++j) {
+                if (recent_tokens[recent_tokens.size() - 7 + j] != eot_sequence[j]) {
+                    is_eot_complete = false;
+                    break;
+                }
+            }
+
+            if (is_eot_complete) {
+                // Sequence detected; remove the six previously appended tokens and stop
+                std::string tokens_to_remove;
+                for (size_t k = 0; k < 6; ++k) { // remove the first six tokens
+                    llama_token tok = recent_tokens[recent_tokens.size() - 7 + k];
+                    tokens_to_remove += common_token_to_piece(ctx, tok);
+                }
+                // Safe removal
+                if (generated_text.length() >= tokens_to_remove.length() &&
+                    generated_text.substr(generated_text.length() - tokens_to_remove.length()) == tokens_to_remove) {
+                    generated_text.erase(generated_text.length() - tokens_to_remove.length());
+                }
+                break; // Stop generation, do not add the 7th token
+            }
+
+            // <|end_header_id|> sequence: [27, 91, 408, 8932, 851, 91, 29]
+            std::vector<llama_token> end_header_sequence = {27, 91, 408, 8932, 851, 91, 29};
+            bool is_end_header_complete = true;
+            for (size_t j = 0; j < 7; ++j) {
+                if (recent_tokens[recent_tokens.size() - 7 + j] != end_header_sequence[j]) {
+                    is_end_header_complete = false;
+                    break;
+                }
+            }
+
+            if (is_end_header_complete) {
+                // Sequence detected; remove the six previously appended tokens and stop
+                std::string tokens_to_remove;
+                for (size_t k = 0; k < 6; ++k) {
+                    llama_token tok = recent_tokens[recent_tokens.size() - 7 + k];
+                    tokens_to_remove += common_token_to_piece(ctx, tok);
+                }
+                if (generated_text.length() >= tokens_to_remove.length() &&
+                    generated_text.substr(generated_text.length() - tokens_to_remove.length()) == tokens_to_remove) {
+                    generated_text.erase(generated_text.length() - tokens_to_remove.length());
+                }
+                break; // Stop generation
+            }
+        }
+
+        // Only add non-EOG tokens to output
+        const std::string token_str = common_token_to_piece(ctx, new_token);
+        generated_text += token_str;
+
+        llama_batch next_batch = llama_batch_init(1, 0, 1);
+        common_batch_add(next_batch, new_token, n_past, {0}, true);
+        if (llama_decode(ctx, next_batch) != 0) {
+            llama_batch_free(next_batch);
+            llama_memory_clear(mem, true);
+            set_error(error_message, "Failed to decode generated token.");
+            return LOCALLLM_ERROR;
+        }
+        llama_batch_free(next_batch);
+        n_past += 1;
+    }
+
+    *result_out = string_to_c_str(generated_text);
+    return LOCALLLM_SUCCESS;
 }
 
-LOCALLLM_API localllm_error_code localllm_generate_parallel(localllm_context_handle ctx, const char** prompts, int n_prompts, const struct localllm_parallel_params* params, char*** results_out, const char** error_message) { 
-    if (!ctx || !params) { 
-        set_error(error_message, "Context or params handle is null."); 
-        return LOCALLLM_ERROR; 
-    } 
-    const llama_model* model = llama_get_model(ctx); 
-    const llama_vocab* vocab = llama_model_get_vocab(model); 
-    const llama_token eos_token = llama_vocab_eos(vocab); 
-    common_params_sampling sparams{}; 
-    sparams.top_k = params->top_k; 
-    sparams.top_p = params->top_p; 
-    sparams.temp = params->temperature; 
-    sparams.penalty_last_n = params->repeat_last_n; 
-    sparams.penalty_repeat = params->penalty_repeat; 
-    uint32_t final_seed = (params->seed < 0) ? time(NULL) : params->seed; 
-    sparams.seed = final_seed; 
-    struct Client { 
-        int id; 
-        llama_seq_id seq_id; 
-        std::vector<llama_token> prompt_tokens; 
-        int32_t n_past = 0; 
-        int32_t n_prompt = 0; 
-        int32_t n_decoded = 0; 
-        int32_t i_batch = -1; 
-        std::string input; 
-        std::string prompt; 
-        std::string response; 
-        llama_token sampled = 0; 
-        common_sampler* smpl = nullptr; 
-        bool finished = false; 
-        int64_t t_start_prompt = 0; 
-        int64_t t_start_gen = 0; 
-    }; 
-    const int n_ctx = llama_n_ctx(ctx); 
-    int32_t n_cache_miss = 0; 
-    std::vector<Client> clients(n_prompts); 
-    
-    try { 
-        // Phase 1: Clear KV cache and initialize clients
-        llama_kv_self_clear(ctx);
-        
-        // Phase 2: Initialize clients and tokenize prompts
-        for (int i = 0; i < n_prompts; ++i) { 
-            auto& C = clients[i]; 
-            C.id = i; 
-            C.seq_id = i + 1;  // Use seq_id 1, 2, 3... (0 reserved for system)
-            C.input = std::string(prompts[i]); 
-            C.prompt = C.input; 
-            C.prompt_tokens = helper_tokenize(model, C.prompt, true); 
-            C.n_prompt = C.prompt_tokens.size(); 
-            C.t_start_prompt = ggml_time_us(); 
-            
-            C.smpl = common_sampler_init(model, sparams); 
-            if (!C.smpl) throw std::runtime_error("Sampler init failed for client " + std::to_string(i)); 
-        }
-        
-        // Phase 3: Process each client's prompt INDEPENDENTLY in their own sequence
-        // This is the key fix - no mixing prompts in seq_id=0
-        for (auto& C : clients) {
-            llama_batch batch = llama_batch_init(n_ctx, 0, 1);
-            
-            // Process this client's prompt tokens in their own sequence
-            for (size_t j = 0; j < C.prompt_tokens.size(); ++j) {
-                common_batch_add(batch, C.prompt_tokens[j], j, {C.seq_id}, j == C.prompt_tokens.size() - 1);
+
+LOCALLLM_API localllm_error_code localllm_generate_parallel(
+    localllm_context_handle ctx,
+    const char** prompts,
+    int n_prompts,
+    const struct localllm_parallel_params* params,
+    char*** results_out,
+    const char** error_message) {
+
+    if (!ctx || !prompts || !params || !results_out || n_prompts <= 0) {
+        set_error(error_message, "Invalid parameters: null pointers or invalid prompt count");
+        return LOCALLLM_ERROR;
+    }
+
+    llama_memory_t mem = llama_get_memory(ctx);
+    const llama_model* model = llama_get_model(ctx);
+    const llama_vocab* vocab = llama_model_get_vocab(model);
+    const llama_token eos_token = llama_vocab_eos(vocab);
+    const int n_ctx = llama_n_ctx(ctx);
+    const int seq_cap_raw = (int)llama_n_seq_max(ctx);
+    const int seq_capacity = std::max(1, seq_cap_raw > 0 ? seq_cap_raw : 1);
+    const int32_t batch_cap_init = std::max<int32_t>(1, std::min<int32_t>(512, (int32_t)llama_n_batch(ctx)));
+    const int total_prompts = n_prompts;
+    const bool show_progress_bar = params->show_progress;
+    int prompts_completed = 0;
+    int spinner_index = 0;
+    const char spinner_chars[] = "|/-\\";
+
+    const auto t_start = ggml_time_us();
+    int32_t n_total_prompt = 0;
+    int32_t n_total_gen = 0;
+    int32_t dynamic_cache_miss = 0;
+
+    std::vector<std::string> final_responses(n_prompts);
+
+    // Tokenise upfront to discover a shared prefix
+    std::vector<std::vector<llama_token>> prompt_tokens_all(n_prompts);
+    size_t shared_prefix_len = 0;
+    for (int i = 0; i < n_prompts; ++i) {
+        prompt_tokens_all[i] = helper_tokenize(model, std::string(prompts[i]), true);
+        if (i == 0) {
+            shared_prefix_len = prompt_tokens_all[i].size();
+        } else {
+            size_t common = 0;
+            size_t limit = std::min(shared_prefix_len, prompt_tokens_all[i].size());
+            while (common < limit && prompt_tokens_all[i][common] == prompt_tokens_all[0][common]) {
+                ++common;
             }
-            
-            // Process this client's prompt
-            int32_t n_batch = (512 < n_ctx) ? 512 : n_ctx; 
-            for (int32_t i = 0; i < (int32_t)batch.n_tokens; i += n_batch) { 
-                const int32_t n_tokens = (n_batch < (int32_t)(batch.n_tokens - i)) ? n_batch : (int32_t)(batch.n_tokens - i); 
-                
-                llama_batch batch_view = { 
-                    n_tokens, 
-                    batch.token + i, 
-                    nullptr, 
-                    batch.pos + i, 
-                    batch.n_seq_id + i, 
-                    batch.seq_id + i, 
-                    batch.logits + i, 
-                }; 
-                
-                const int ret = llama_decode(ctx, batch_view); 
-                if (ret != 0) { 
-                    if (n_batch == 1 || ret < 0) { 
-                        llama_batch_free(batch); 
-                        throw std::runtime_error("Failed to decode prompt for client " + std::to_string(C.id) + ", n_batch = " + std::to_string(n_batch) + ", ret = " + std::to_string(ret)); 
-                    } 
-                    // Retry with smaller batch size 
-                    n_cache_miss += 1; 
-                    n_batch /= 2; 
-                    i -= n_batch; 
-                    continue; 
-                } 
-            } 
-            
-            llama_batch_free(batch);
-            C.n_past = C.n_prompt; 
+            shared_prefix_len = common;
         }
-        
-        // Phase 4: Generation loop 
-        int active = n_prompts; 
-        while (active > 0) { 
-            llama_batch batch = llama_batch_init(n_ctx, 0, active); 
-            std::vector<int> batch_client_ids; 
-            batch_client_ids.reserve(active); 
-            
-            // Add tokens for active clients 
-            for (auto& C : clients) { 
-                if (C.finished) continue; 
-                
-                // For first generation step, use the last token from prompt
-                if (C.n_decoded == 0) {
-                    C.sampled = C.prompt_tokens.back();
+    }
+
+    llama_memory_clear(mem, true);
+    bool prefix_ready = false;
+    std::vector<llama_token> shared_prefix_tokens;
+    if (shared_prefix_len > 0) {
+        shared_prefix_tokens.assign(prompt_tokens_all[0].begin(), prompt_tokens_all[0].begin() + shared_prefix_len);
+        llama_batch prefix_batch = llama_batch_init(shared_prefix_tokens.size(), 0, 1);
+        for (size_t j = 0; j < shared_prefix_tokens.size(); ++j) {
+            common_batch_add(prefix_batch, shared_prefix_tokens[j], j, {0}, j == shared_prefix_tokens.size() - 1);
+        }
+
+        int32_t local_cap = batch_cap_init;
+        bool prefix_ok = true;
+        for (int32_t start = 0; start < (int32_t)prefix_batch.n_tokens; ) {
+            int32_t n_tokens = std::min(local_cap, (int32_t)(prefix_batch.n_tokens - start));
+            llama_batch view = {
+                n_tokens,
+                prefix_batch.token + start,
+                nullptr,
+                prefix_batch.pos + start,
+                prefix_batch.n_seq_id + start,
+                prefix_batch.seq_id + start,
+                prefix_batch.logits + start,
+            };
+
+            int ret = llama_decode(ctx, view);
+            if (ret != 0) {
+                if (ret > 0 && local_cap > 1) {
+                    local_cap = std::max<int32_t>(1, local_cap / 2);
+                    dynamic_cache_miss++;
+                    continue;
                 }
-                
-                C.i_batch = batch.n_tokens; 
-                const int pos = C.n_past + C.n_decoded;
-                common_batch_add(batch, C.sampled, pos, {C.seq_id}, true); 
-                batch_client_ids.push_back(C.id); 
-            } 
-            
-            if (batch.n_tokens == 0) { 
-                llama_batch_free(batch); 
-                break; 
-            } 
-            
-            // Process generation batch in chunks 
-            int32_t n_batch = (512 < n_ctx) ? 512 : n_ctx; 
-            for (int32_t i = 0; i < (int32_t)batch.n_tokens; i += n_batch) { 
-                const int32_t n_tokens = (n_batch < (int32_t)(batch.n_tokens - i)) ? n_batch : (int32_t)(batch.n_tokens - i); 
-                
-                llama_batch batch_view = { 
-                    n_tokens, 
-                    batch.token + i, 
-                    nullptr, 
-                    batch.pos + i, 
-                    batch.n_seq_id + i, 
-                    batch.seq_id + i, 
-                    batch.logits + i, 
-                }; 
-                
-                const int ret = llama_decode(ctx, batch_view); 
-                if (ret != 0) { 
-                    if (n_batch == 1 || ret < 0) { 
-                        llama_batch_free(batch); 
-                        throw std::runtime_error("Failed to decode generation batch, n_batch = " + std::to_string(n_batch) + ", ret = " + std::to_string(ret)); 
-                    } 
-                    n_cache_miss += 1; 
-                    n_batch /= 2; 
-                    i -= n_batch; 
-                    continue; 
-                } 
-                
-                // Sample for clients in this chunk 
-                for (int b = 0; b < (int)batch_client_ids.size(); ++b) { 
-                    const int client_id = batch_client_ids[b];
-                    Client& C = clients[client_id]; 
-                    if (C.i_batch < i || C.i_batch >= i + n_tokens) continue; 
-                    
-                    // Ensure we sample from the correct position for this specific client
-                    const int batch_pos = C.i_batch - i;
-                    const llama_token tok = common_sampler_sample(C.smpl, ctx, batch_pos); 
-                    common_sampler_accept(C.smpl, tok, true); 
-                    
-                    if (C.n_decoded == 0) { 
-                        C.t_start_gen = ggml_time_us(); 
-                    } 
-                    
-                    const std::string token_str = common_token_to_piece(ctx, tok);
-                    C.response += token_str; 
-                    C.sampled = tok; 
-                    C.n_decoded++; 
-                    
-                    // Check for completion conditions 
-                    bool should_stop = false; 
-                    
-                    // Only stop on EOS/EOG tokens
-                    if (tok == eos_token || llama_vocab_is_eog(vocab, tok)) { 
-                        should_stop = true; 
-                    } 
-                    
-                    // Use decode count for max_tokens check (simpler and more reliable)
-                    if (params->max_tokens > 0 && C.n_decoded >= params->max_tokens) { 
-                        should_stop = true; 
-                    } 
-                    
-                    // Only stop on clear conversation endings
-                    if (C.n_decoded > 5 && 
-                        (C.response.find("\n\nUser:") != std::string::npos || 
-                         C.response.find("\n\nHuman:") != std::string::npos)) { 
-                        should_stop = true; 
-                    } 
-                    
-                    if (should_stop) { 
-                        C.finished = true; 
-                        active--; 
-                        // Clean up this sequence's KV cache completely
-                        llama_kv_self_seq_rm(ctx, C.seq_id, 0, -1); 
-                    } 
-                } 
-            } 
-            llama_batch_free(batch); 
-        } 
-        
-        // Phase 5: Performance statistics and cleanup
-        const auto t_main_end = ggml_time_us();
-        int32_t n_total_prompt = 0;
-        int32_t n_total_gen = 0;
-        
-        for (auto& C : clients) {
-            n_total_prompt += C.n_prompt;
-            n_total_gen += C.n_decoded;
+                prefix_ok = false;
+                break;
+            }
+            start += n_tokens;
         }
-        
-    } catch (const std::exception& e) { 
-        for(auto& C : clients) if (C.smpl) common_sampler_free(C.smpl); 
-        set_error(error_message, e.what()); 
-        return LOCALLLM_ERROR; 
-    } 
-    
-    // Clean up samplers
-    for (auto& C : clients) if (C.smpl) common_sampler_free(C.smpl); 
-    
-    // Prepare results with enhanced cleaning
-    *results_out = new char*[n_prompts]; 
-    for (int i = 0; i < n_prompts; ++i) { 
-        std::string clean_response = clients[i].response;
-        
-        // Remove leading invalid characters (like "?" and non-printable chars)
-        while (!clean_response.empty() && 
-               (clean_response.front() == '?' || 
-                clean_response.front() < 32 || 
-                clean_response.front() > 126)) {
-            clean_response = clean_response.substr(1);
+        llama_batch_free(prefix_batch);
+
+        if (!prefix_ok) {
+            llama_memory_clear(mem, true);
+        } else {
+            prefix_ready = true;
         }
-        
-        // Remove trailing whitespace
-        while (!clean_response.empty() && isspace(clean_response.back())) {
-            clean_response.pop_back();
+    }
+
+    struct Slot {
+        bool active = false;
+        bool finished = false;
+        bool failed = false;
+        llama_seq_id seq_id = 0;
+        int global_index = -1;
+        const std::vector<llama_token>* full_tokens = nullptr;
+        std::vector<llama_token> suffix_tokens;
+        int32_t prefix_len = 0;
+        int32_t n_past = 0;
+        int32_t n_prompt = 0;
+        int32_t n_decoded = 0;
+        int32_t next_pos = 0;
+        int32_t i_batch = -1;
+        llama_token sampled = 0;
+        common_sampler* smpl = nullptr;
+        std::string response;
+        std::string error_msg;
+        std::vector<llama_token> recent_tokens;  // For multi-token EOG sequence detection
+        bool need_prompt_logit = false;
+        bool priming = false;
+    };
+
+    auto clean_response_text = [](std::string text) {
+        const std::vector<std::string> stop_markers = {
+            "<|im_start|>", "<|im_end|>", "<|eot_id|>",
+            "<|start_header_id|>", "<|end_header_id|>",
+            "<end_of_turn>", "<start_of_turn>",
+            "</s>", "<s>", "<|endoftext|>", "<|end|>", "<|start|>",
+            "<eos>", "<bos>",
+            "\n<|im_end|>", "\n<end_of_turn>", "\n</s>"
+        };
+
+        bool found_marker = true;
+        int cleanup_rounds = 0;
+        while (found_marker && cleanup_rounds < 5) {
+            found_marker = false;
+            cleanup_rounds++;
+            for (const auto& marker : stop_markers) {
+                size_t pos = 0;
+                while ((pos = text.find(marker, pos)) != std::string::npos) {
+                    text.erase(pos, marker.length());
+                    found_marker = true;
+                }
+            }
         }
-        
-        // Remove leading whitespace after invalid char removal
-        while (!clean_response.empty() && isspace(clean_response.front())) {
-            clean_response = clean_response.substr(1);
+
+        while (!text.empty() && (text.front() == '?' || text.front() < 32 || text.front() > 126)) {
+            text = text.substr(1);
         }
-        
-        (*results_out)[i] = string_to_c_str(clean_response); 
-    } 
-    return LOCALLLM_SUCCESS; 
+        while (!text.empty() && isspace(text.back())) {
+            text.pop_back();
+        }
+        while (!text.empty() && isspace(text.front())) {
+            text = text.substr(1);
+        }
+
+        size_t pos = text.find("\n\nUser:");
+        if (pos != std::string::npos) {
+            text = text.substr(0, pos);
+        }
+        return text;
+    };
+
+    auto release_slot = [](Slot& slot) {
+        if (slot.smpl) {
+            common_sampler_free(slot.smpl);
+            slot.smpl = nullptr;
+        }
+        slot.active = false;
+        slot.finished = false;
+        slot.failed = false;
+        slot.seq_id = 0;
+        slot.global_index = -1;
+        slot.full_tokens = nullptr;
+        slot.suffix_tokens.clear();
+        slot.prefix_len = 0;
+        slot.n_past = 0;
+        slot.n_prompt = 0;
+        slot.n_decoded = 0;
+        slot.next_pos = 0;
+        slot.i_batch = -1;
+        slot.sampled = 0;
+        slot.response.clear();
+        slot.error_msg.clear();
+        slot.recent_tokens.clear();
+        slot.need_prompt_logit = false;
+        slot.priming = false;
+    };
+
+    common_params_sampling sparams{};
+    sparams.top_k = params->top_k;
+    sparams.top_p = params->top_p;
+    sparams.temp = params->temperature;
+    sparams.penalty_last_n = params->repeat_last_n;
+    sparams.penalty_repeat = params->penalty_repeat;
+    sparams.seed = (params->seed < 0) ? time(nullptr) : params->seed;
+
+    auto decode_prompt_tokens = [&](Slot& slot) -> bool {
+        if (slot.n_prompt <= 0) {
+            slot.failed = true;
+            slot.error_msg = "Prompt resulted in zero tokens";
+            return false;
+        }
+
+        if (slot.suffix_tokens.empty()) {
+            slot.n_past = slot.n_prompt;
+            return true;
+        }
+
+        llama_batch batch = llama_batch_init(slot.suffix_tokens.size(), 0, 1);
+        for (size_t j = 0; j < slot.suffix_tokens.size(); ++j) {
+            const int position = slot.prefix_len + static_cast<int>(j);
+            common_batch_add(batch, slot.suffix_tokens[j], position, {slot.seq_id}, j == slot.suffix_tokens.size() - 1);
+        }
+
+        int32_t local_cap = batch_cap_init;
+        for (int32_t start = 0; start < (int32_t)batch.n_tokens;) {
+            int32_t n_tokens = std::min(local_cap, (int32_t)(batch.n_tokens - start));
+            llama_batch view = {
+                n_tokens,
+                batch.token + start,
+                nullptr,
+                batch.pos + start,
+                batch.n_seq_id + start,
+                batch.seq_id + start,
+                batch.logits + start,
+            };
+
+            int ret = llama_decode(ctx, view);
+            if (ret == 0) {
+                start += n_tokens;
+                continue;
+            }
+
+            if (ret > 0 && local_cap > 1) {
+                local_cap = std::max<int32_t>(1, local_cap / 2);
+                dynamic_cache_miss++;
+                continue;
+            }
+
+            llama_batch_free(batch);
+            slot.failed = true;
+            slot.error_msg = "Failed to decode prompt tokens";
+            return false;
+        }
+
+        slot.n_past = slot.n_prompt;
+        llama_batch_free(batch);
+        return true;
+    };
+
+    std::vector<Slot> slots(seq_capacity);
+    size_t next_prompt_idx = 0;
+    int active_clients = 0;
+    std::vector<int> slots_pending_reassign;
+    slots_pending_reassign.reserve(seq_capacity);
+
+    auto finalize_slot = [&](int slot_idx, bool success) {
+        Slot& slot = slots[slot_idx];
+        if (!slot.active) {
+            release_slot(slot);
+            return;
+        }
+
+        if (slot.seq_id > 0) {
+            llama_memory_seq_rm(mem, slot.seq_id, 0, -1);
+        }
+
+        if (success) {
+            final_responses[slot.global_index] = clean_response_text(slot.response);
+            n_total_gen += slot.n_decoded;
+        } else {
+            final_responses[slot.global_index] = "[ERROR] " + (slot.error_msg.empty() ? std::string("Unknown error") : slot.error_msg);
+        }
+
+        slot.active = false;
+        active_clients--;
+        bool needs_reassign = next_prompt_idx < (size_t)n_prompts;
+        release_slot(slot);
+        if (show_progress_bar) {
+            prompts_completed++;
+            float percent = (float)prompts_completed / std::max(total_prompts, 1);
+            if (percent > 1.0f) {
+                percent = 1.0f;
+            }
+            const int bar_width = 30;
+            int filled = (int)(percent * bar_width);
+            if (filled > bar_width) {
+                filled = bar_width;
+            }
+            std::string bar(filled, '=');
+            bar.append(bar_width - filled, ' ');
+            char spinner = spinner_chars[spinner_index];
+            spinner_index = (spinner_index + 1) % 4;
+            fprintf(stderr, "\r %c [%s] %d/%d (%3.0f%%)", spinner, bar.c_str(), prompts_completed, total_prompts, percent * 100.0f);
+            fflush(stderr);
+        }
+        if (needs_reassign) {
+            slots_pending_reassign.push_back(slot_idx);
+        }
+    };
+
+    auto assign_next_prompt = [&](int slot_idx) -> bool {
+        Slot& slot = slots[slot_idx];
+        release_slot(slot);
+
+        while (next_prompt_idx < (size_t)n_prompts) {
+            const size_t global_idx = next_prompt_idx++;
+            slot.seq_id = static_cast<llama_seq_id>(slot_idx + 1);
+            slot.global_index = static_cast<int>(global_idx);
+            slot.full_tokens = &prompt_tokens_all[global_idx];
+            slot.n_prompt = static_cast<int32_t>(slot.full_tokens->size());
+            slot.prefix_len = prefix_ready ? std::min<int32_t>((int32_t)shared_prefix_len, slot.n_prompt) : 0;
+            slot.suffix_tokens.clear();
+            if (slot.n_prompt > slot.prefix_len) {
+                slot.suffix_tokens.assign(slot.full_tokens->begin() + slot.prefix_len, slot.full_tokens->end());
+            }
+            slot.n_past = slot.prefix_len;
+            slot.n_decoded = 0;
+            slot.next_pos = slot.n_prompt;
+            slot.i_batch = -1;
+            slot.failed = false;
+            slot.response.clear();
+            slot.error_msg.clear();
+            slot.need_prompt_logit = slot.n_prompt > 0;
+            slot.priming = false;
+            slot.sampled = 0;
+
+            slot.smpl = common_sampler_init(model, sparams);
+            if (!slot.smpl) {
+                slot.error_msg = "Failed to initialize sampler";
+                final_responses[slot.global_index] = "[ERROR] " + slot.error_msg;
+                release_slot(slot);
+                continue;
+            }
+
+            if (slot.n_prompt > n_ctx - 64) {
+                slot.error_msg = "Prompt too long for context size";
+                final_responses[slot.global_index] = "[ERROR] " + slot.error_msg;
+                release_slot(slot);
+                continue;
+            }
+
+            if (slot.n_prompt == 0) {
+                slot.error_msg = "Prompt resulted in zero tokens";
+                final_responses[slot.global_index] = "[ERROR] " + slot.error_msg;
+                release_slot(slot);
+                continue;
+            }
+
+            n_total_prompt += slot.n_prompt;
+
+            if (prefix_ready && slot.prefix_len > 0) {
+                llama_memory_seq_cp(mem, 0, slot.seq_id, -1, -1);
+            }
+
+            if (!decode_prompt_tokens(slot)) {
+                if (slot.seq_id > 0) {
+                    llama_memory_seq_rm(mem, slot.seq_id, 0, -1);
+                }
+                final_responses[slot.global_index] = "[ERROR] " + slot.error_msg;
+                release_slot(slot);
+                continue;
+            }
+
+            slot.active = true;
+            active_clients++;
+            return true;
+        }
+
+        release_slot(slot);
+        return false;
+    };
+
+    auto ensure_slots_filled = [&]() {
+        for (int i = 0; i < seq_capacity && next_prompt_idx < (size_t)n_prompts; ++i) {
+            if (!slots[i].active) {
+                assign_next_prompt(i);
+            }
+        }
+    };
+
+    try {
+        ensure_slots_filled();
+
+        while (active_clients > 0) {
+            ensure_slots_filled();
+
+            std::vector<int> batch_slots;
+            batch_slots.reserve(active_clients);
+            llama_batch gen_batch = llama_batch_init(n_ctx, 0, active_clients);
+
+            for (int i = 0; i < seq_capacity; ++i) {
+                Slot& slot = slots[i];
+                if (!slot.active || slot.failed) {
+                    continue;
+                }
+
+                if (slot.n_decoded == 0 && slot.full_tokens && !slot.full_tokens->empty()) {
+                    // slot.sampled will be set after first actual generation;
+                    // use priming flag to re-evaluate the final prompt token instead
+                }
+
+                slot.i_batch = gen_batch.n_tokens;
+                llama_token token_to_feed = slot.sampled;
+                int pos = slot.n_past + slot.n_decoded;
+
+                if (slot.need_prompt_logit) {
+                    slot.priming = true;
+                    token_to_feed = (slot.full_tokens && !slot.full_tokens->empty())
+                        ? slot.full_tokens->back()
+                        : llama_vocab_bos(vocab);
+                    pos = std::max(slot.n_prompt - 1, 0);
+                } else {
+                    slot.priming = false;
+                    token_to_feed = slot.sampled;
+                    pos = slot.next_pos;
+                    slot.next_pos++;
+                }
+
+                common_batch_add(gen_batch, token_to_feed, pos, {slot.seq_id}, true);
+                batch_slots.push_back(i);
+            }
+
+            if (gen_batch.n_tokens == 0) {
+                llama_batch_free(gen_batch);
+                break;
+            }
+
+            bool decode_success = true;
+            int32_t local_cap = batch_cap_init;
+            for (int32_t start = 0; start < (int32_t)gen_batch.n_tokens;) {
+                int32_t n_tokens = std::min(local_cap, (int32_t)(gen_batch.n_tokens - start));
+                llama_batch view = {
+                    n_tokens,
+                    gen_batch.token + start,
+                    nullptr,
+                    gen_batch.pos + start,
+                    gen_batch.n_seq_id + start,
+                    gen_batch.seq_id + start,
+                    gen_batch.logits + start,
+                };
+
+                int ret = llama_decode(ctx, view);
+                if (ret != 0) {
+                    if (ret > 0 && local_cap > 1) {
+                        local_cap = std::max<int32_t>(1, local_cap / 2);
+                        dynamic_cache_miss++;
+                        continue;
+                    }
+                    decode_success = false;
+                    break;
+                }
+
+                for (int slot_idx : batch_slots) {
+                    Slot& slot = slots[slot_idx];
+                    if (!slot.active || slot.failed) {
+                        continue;
+                    }
+                    if (slot.i_batch < start || slot.i_batch >= start + n_tokens) {
+                        continue;
+                    }
+
+                    const int batch_pos = slot.i_batch - start;
+
+                    try {
+                        const llama_token new_token = common_sampler_sample(slot.smpl, ctx, batch_pos);
+                        common_sampler_accept(slot.smpl, new_token, true);
+
+                        if (slot.priming) {
+                            slot.need_prompt_logit = false;
+                            slot.priming = false;
+                            // Ensure next generated token will be placed right after the prompt
+                            slot.next_pos = slot.n_prompt;
+                        }
+
+                        bool should_stop = false;
+                        if (new_token == eos_token || llama_vocab_is_eog(vocab, new_token)) {
+                            should_stop = true;
+                        }
+
+                        if (params->max_tokens > 0 && slot.n_decoded >= params->max_tokens) {
+                            should_stop = true;
+                        }
+
+                        // Multi-token EOG sequence detection (matching generate() logic)
+                        // Must check BEFORE adding token to response
+                        if (!should_stop) {
+                            // Track recent tokens
+                            slot.recent_tokens.push_back(new_token);
+                            if (slot.recent_tokens.size() > 7) {
+                                slot.recent_tokens.erase(slot.recent_tokens.begin());
+                            }
+
+                            if (slot.recent_tokens.size() >= 7) {
+                                // <|eot_id|> sequence: [27, 91, 68, 354, 851, 91, 29]
+                                static const std::vector<llama_token> eot_sequence = {27, 91, 68, 354, 851, 91, 29};
+                                bool is_eot = std::equal(eot_sequence.begin(), eot_sequence.end(),
+                                                         slot.recent_tokens.end() - 7);
+                                if (is_eot) {
+                                    // Remove the first 6 tokens of the sequence from response (7th not added yet)
+                                    std::string tokens_to_remove;
+                                    for (size_t k = 0; k < 6; ++k) {
+                                        llama_token tok = slot.recent_tokens[slot.recent_tokens.size() - 7 + k];
+                                        tokens_to_remove += common_token_to_piece(ctx, tok);
+                                    }
+                                    if (slot.response.length() >= tokens_to_remove.length() &&
+                                        slot.response.substr(slot.response.length() - tokens_to_remove.length()) == tokens_to_remove) {
+                                        slot.response.erase(slot.response.length() - tokens_to_remove.length());
+                                    }
+                                    should_stop = true;
+                                }
+
+                                // <|end_header_id|> sequence: [27, 91, 408, 8932, 851, 91, 29]
+                                if (!should_stop) {
+                                    static const std::vector<llama_token> end_header_sequence = {27, 91, 408, 8932, 851, 91, 29};
+                                    bool is_end_header = std::equal(end_header_sequence.begin(), end_header_sequence.end(),
+                                                                    slot.recent_tokens.end() - 7);
+                                    if (is_end_header) {
+                                        std::string tokens_to_remove;
+                                        for (size_t k = 0; k < 6; ++k) {
+                                            llama_token tok = slot.recent_tokens[slot.recent_tokens.size() - 7 + k];
+                                            tokens_to_remove += common_token_to_piece(ctx, tok);
+                                        }
+                                        if (slot.response.length() >= tokens_to_remove.length() &&
+                                            slot.response.substr(slot.response.length() - tokens_to_remove.length()) == tokens_to_remove) {
+                                            slot.response.erase(slot.response.length() - tokens_to_remove.length());
+                                        }
+                                        should_stop = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Only add token to response if not stopping
+                        if (!should_stop) {
+                            const std::string token_str = common_token_to_piece(ctx, new_token);
+                            slot.response += token_str;
+
+                            // Check for text-based stop patterns
+                            if (slot.n_decoded > 5 &&
+                                (slot.response.find("\n\nUser:") != std::string::npos ||
+                                 slot.response.find("\n\nHuman:") != std::string::npos)) {
+                                should_stop = true;
+                            }
+                        }
+
+                        slot.sampled = new_token;
+                        slot.n_decoded++;
+                        slot.i_batch = -1;
+
+                        if (should_stop) {
+                            finalize_slot(slot_idx, true);
+                        }
+
+                    } catch (const std::exception& e) {
+                        Slot& err_slot = slots[slot_idx];
+                        err_slot.failed = true;
+                        err_slot.error_msg = std::string("Sampling failed: ") + e.what();
+                        err_slot.i_batch = -1;
+                        finalize_slot(slot_idx, false);
+                    }
+                }
+
+                start += n_tokens;
+            }
+
+            llama_batch_free(gen_batch);
+
+            if (!slots_pending_reassign.empty()) {
+                for (int slot_idx : slots_pending_reassign) {
+                    assign_next_prompt(slot_idx);
+                }
+                slots_pending_reassign.clear();
+            }
+
+            if (!decode_success) {
+                throw std::runtime_error("Fatal decode error during generation batch");
+            }
+        }
+
+        const auto t_end = ggml_time_us();
+        const double total_time = (t_end - t_start) / 1e6;
+
+        if (show_progress_bar) {
+            fprintf(stderr, "\r [==============================] %d/%d (100%%)\n", total_prompts, total_prompts);
+            fflush(stderr);
+        }
+
+        for (int i = 0; i < seq_capacity; ++i) {
+            release_slot(slots[i]);
+        }
+
+        if (prefix_ready) {
+            llama_memory_seq_rm(mem, 0, 0, -1);
+        }
+
+        *results_out = new char*[n_prompts];
+        for (int i = 0; i < n_prompts; ++i) {
+            (*results_out)[i] = string_to_c_str(final_responses[i]);
+        }
+
+#ifdef LOCALLLM_DEBUG
+        std::cout << "=== Parallel Generation Performance ===" << std::endl;
+        std::cout << "Total time: " << total_time << "s" << std::endl;
+        std::cout << "Prompt tokens: " << n_total_prompt << std::endl;
+        std::cout << "Generated tokens: " << n_total_gen << std::endl;
+        std::cout << "Cache misses (dynamic throttling): " << dynamic_cache_miss << std::endl;
+        std::cout << "Sequence capacity: " << seq_capacity << std::endl;
+        if (total_time > 0) {
+            std::cout << "Prompt speed: " << n_total_prompt / total_time << " t/s" << std::endl;
+            std::cout << "Generation speed: " << n_total_gen / total_time << " t/s" << std::endl;
+        }
+#endif
+
+        return LOCALLLM_SUCCESS;
+
+    } catch (const std::exception& e) {
+        if (show_progress_bar) {
+            fprintf(stderr, "\r [==============================] %d/%d (100%%)\n", total_prompts, total_prompts);
+            fflush(stderr);
+        }
+        llama_memory_clear(mem, true);
+        set_error(error_message, std::string("Parallel generation failed: ") + e.what());
+        return LOCALLLM_ERROR;
+    }
 }
 
 LOCALLLM_API void localllm_free_string_array(char** arr, int count) { 
@@ -592,25 +1207,6 @@ LOCALLLM_API int32_t localllm_token_fim_suf(localllm_model_handle model) {
 #include <iostream>
 #include <iomanip>
 
-// Helper functions for model downloading (using localllm_ prefix to avoid conflicts)
-static bool localllm_string_starts_with(const std::string& str, const std::string& prefix) {
-    return str.size() >= prefix.size() && str.compare(0, prefix.size(), prefix) == 0;
-}
-
-static std::string localllm_basename(const std::string& path) {
-    const size_t pos = path.find_last_of("/\\");
-    return (pos == std::string::npos) ? path : path.substr(pos + 1);
-}
-
-static int localllm_rm_until_substring(std::string& model_, const std::string& substring) {
-    const std::string::size_type pos = model_.find(substring);
-    if (pos == std::string::npos) {
-        return 1;
-    }
-    model_ = model_.substr(pos + substring.size());
-    return 0;
-}
-
 // Progress callback for curl
 struct progress_data {
     std::chrono::steady_clock::time_point start_time;
@@ -668,6 +1264,15 @@ static int download_file(const std::string& url, const std::string& output_file,
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
     
+    // Check for HuggingFace token and add authorization header if needed
+    struct curl_slist* headers = nullptr;
+    const char* hf_token = std::getenv("HF_TOKEN");
+    if (hf_token && strlen(hf_token) > 0 && url.find("huggingface.co") != std::string::npos) {
+        std::string auth_header = "Authorization: Bearer " + std::string(hf_token);
+        headers = curl_slist_append(headers, auth_header.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    }
+    
     if (show_progress) {
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &data);
@@ -676,6 +1281,11 @@ static int download_file(const std::string& url, const std::string& output_file,
     
     CURLcode res = curl_easy_perform(curl);
     fclose(fp);
+    
+    // Clean up headers
+    if (headers) {
+        curl_slist_free_all(headers);
+    }
     
     if (res != CURLE_OK) {
         curl_easy_cleanup(curl);
