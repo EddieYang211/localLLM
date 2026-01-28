@@ -70,3 +70,17 @@ src/*.o
 src/*.so
 src/*.dll
 **/symbols.rds
+
+# Development and migration documentation (temporary)
+CRITICAL_CHANGES_*.md
+MIGRATION_ANALYSIS_*.md
+UPGRADE_COMPLETE.md
+check_output*.txt
+
+# inst/ directory (generated during R CMD build)
+localLLM/inst/
+
+# CMake build directories
+build/
+build_*/
+!build*.sh

@@ -144,7 +144,7 @@ Potential optimizations for future releases:
 
 For detailed technical information about the backend upgrade, see:
 - [UPGRADE_COMPLETE.md](../UPGRADE_COMPLETE.md)
-- [llama.cpp releases](https://github.com/ggerganov/llama.cpp/releases)
+- [llama.cpp releases](https://github.com/ggml-org/llama.cpp/releases)
 
 # localLLM 1.1.0
 
