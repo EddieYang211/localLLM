@@ -11,7 +11,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Strategy: Try static libraries first, fall back to OBJECT libraries if incomplete
 
 # Force complete static library builds (if possible)
-set(GGML_STATIC ON CACHE BOOL "Force GGML static library with complete symbols" FORCE)
+# Linux: avoid -static to prevent linking non-PIC libgomp.a into shared library
+if(UNIX AND NOT APPLE)
+    set(GGML_STATIC OFF CACHE BOOL "Disable static linking on Linux to avoid libgomp.a" FORCE)
+else()
+    set(GGML_STATIC ON CACHE BOOL "Force GGML static library with complete symbols" FORCE)
+endif()
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Force all libraries to be static for complete symbol inclusion" FORCE)
 
 # Essential build configuration for symbol completeness
