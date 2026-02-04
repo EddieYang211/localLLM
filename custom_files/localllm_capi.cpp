@@ -813,6 +813,12 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             if (slot.n_prompt > slot.prefix_len) {
                 slot.suffix_tokens.assign(slot.full_tokens->begin() + slot.prefix_len, slot.full_tokens->end());
             }
+            if (prefix_ready && slot.n_prompt > 0 && slot.prefix_len == slot.n_prompt) {
+                // Ensure logits are produced by decoding the final token instead of re-decoding
+                slot.prefix_len = slot.n_prompt - 1;
+                slot.suffix_tokens.clear();
+                slot.suffix_tokens.push_back(slot.full_tokens->back());
+            }
             slot.n_past = slot.prefix_len;
             slot.n_decoded = 0;
             slot.next_pos = slot.n_prompt;
@@ -820,7 +826,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             slot.failed = false;
             slot.response.clear();
             slot.error_msg.clear();
-            slot.need_prompt_logit = slot.n_prompt > 0;
+            slot.need_prompt_logit = slot.suffix_tokens.empty() && slot.n_prompt > 0;
             slot.priming = false;
             slot.sampled = 0;
 
@@ -849,7 +855,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             n_total_prompt += slot.n_prompt;
 
             if (prefix_ready && slot.prefix_len > 0) {
-                llama_memory_seq_cp(mem, 0, slot.seq_id, -1, -1);
+                llama_memory_seq_cp(mem, 0, slot.seq_id, 0, slot.prefix_len);
             }
 
             if (!decode_prompt_tokens(slot)) {
