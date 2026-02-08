@@ -705,10 +705,26 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             return true;
         }
 
-        llama_batch batch = llama_batch_init(slot.suffix_tokens.size(), 0, 1);
-        for (size_t j = 0; j < slot.suffix_tokens.size(); ++j) {
-            const int position = slot.prefix_len + static_cast<int>(j);
-            common_batch_add(batch, slot.suffix_tokens[j], position, {slot.seq_id}, j == slot.suffix_tokens.size() - 1);
+        // Determine which tokens to decode
+        // In b7825, llama_memory_seq_cp() with partial ranges is broken for cross-stream copies
+        // So we decode the full prompt (prefix + suffix) instead of copying prefix from seq 0
+        const std::vector<llama_token>* tokens_to_decode = nullptr;
+        int start_pos = 0;
+
+        if (slot.prefix_len > 0 && prefix_ready) {
+            // Decode full prompt (prefix + suffix combined in full_tokens)
+            tokens_to_decode = slot.full_tokens;
+            start_pos = 0;
+        } else {
+            // No prefix or prefix not ready - decode suffix only
+            tokens_to_decode = &slot.suffix_tokens;
+            start_pos = slot.prefix_len;
+        }
+
+        llama_batch batch = llama_batch_init(tokens_to_decode->size(), 0, 1);
+        for (size_t j = 0; j < tokens_to_decode->size(); ++j) {
+            const int position = start_pos + static_cast<int>(j);
+            common_batch_add(batch, (*tokens_to_decode)[j], position, {slot.seq_id}, j == tokens_to_decode->size() - 1);
         }
 
         int32_t local_cap = batch_cap_init;
@@ -854,9 +870,9 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
 
             n_total_prompt += slot.n_prompt;
 
-            if (prefix_ready && slot.prefix_len > 0) {
-                llama_memory_seq_cp(mem, 0, slot.seq_id, 0, slot.prefix_len);
-            }
+            // Note: We no longer use llama_memory_seq_cp() because b7825's implementation
+            // doesn't support partial range copies for cross-stream sequences.
+            // Instead, decode_prompt_tokens() handles full prompt decoding.
 
             if (!decode_prompt_tokens(slot)) {
                 if (slot.seq_id > 0) {
@@ -865,6 +881,36 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
                 final_responses[slot.global_index] = "[ERROR] " + slot.error_msg;
                 release_slot(slot);
                 continue;
+            }
+
+            // Sample the first generated token from prompt logits
+            // (prompt decode set logits=true on the last token)
+            {
+                const llama_token first_token = common_sampler_sample(slot.smpl, ctx, -1);
+                common_sampler_accept(slot.smpl, first_token, true);
+                slot.sampled = first_token;
+
+                // Check for immediate EOS
+                if (first_token == eos_token || llama_vocab_is_eog(vocab, first_token)) {
+                    slot.active = true;
+                    active_clients++;
+                    finalize_slot(slot_idx, true);
+                    return true;
+                }
+
+                // Add first token to response
+                const std::string token_str = common_token_to_piece(ctx, first_token);
+                slot.response += token_str;
+                slot.n_decoded = 1;
+                slot.recent_tokens.push_back(first_token);
+
+                // Check max_tokens limit
+                if (params->max_tokens > 0 && slot.n_decoded >= params->max_tokens) {
+                    slot.active = true;
+                    active_clients++;
+                    finalize_slot(slot_idx, true);
+                    return true;
+                }
             }
 
             slot.active = true;
