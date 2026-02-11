@@ -1239,6 +1239,31 @@ if (is.null(x)) {
                          single = FALSE,
                          auto = batch_size > 1L)
 
+  # Validate parallel mode requirements
+  if (use_parallel) {
+    ctx_seq_max <- attr(context, "n_seq_max")
+    if (is.null(ctx_seq_max)) ctx_seq_max <- 1L
+    if (ctx_seq_max < 2L) {
+      # For explicit "parallel", throw error
+      # For "auto", fall back to single-sequence mode
+      if (engine == "parallel") {
+        stop("engine='parallel' requires a context with n_seq_max >= 2.\n",
+             "Current context has n_seq_max=", ctx_seq_max, ".\n\n",
+             "To fix this, either:\n",
+             "  1. Increase n_seq_max in your model specification:\n",
+             "     models <- list(\n",
+             "       list(model_id = \"mymodel\", path = \"...\", n_seq_max = 8L)\n",
+             "     )\n",
+             "  2. Use engine=\"auto\" (automatically chooses best mode)\n",
+             "  3. Use engine=\"single\" (sequential processing)",
+             call. = FALSE)
+      } else {
+        # Auto mode: silently fall back to single-sequence
+        use_parallel <- FALSE
+      }
+    }
+  }
+
   remaining <- seq_len(n)
   gen_args <- spec$generation %||% list()
   gen_args$max_tokens <- gen_args$max_tokens %||% 100L
