@@ -416,7 +416,7 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
         // Fix: combine standard EOG detection + multi-token sequence detection
 
         // 1. Standard single-token EOG detection (retain official logic)
-        if (llama_vocab_is_eog(vocab, new_token)) {
+        if (new_token == eos_token || llama_vocab_is_eog(vocab, new_token)) {
             break; // Stop generation immediately, do not add to output
         }
 
@@ -692,6 +692,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
     sparams.penalty_last_n = params->repeat_last_n;
     sparams.penalty_repeat = params->penalty_repeat;
     sparams.seed = (params->seed < 0) ? time(nullptr) : params->seed;
+    sparams.min_keep = 1;
 
     auto decode_prompt_tokens = [&](Slot& slot) -> bool {
         if (slot.n_prompt <= 0) {
