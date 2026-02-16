@@ -84,3 +84,9 @@ localLLM/inst/
 build/
 build_*/
 !build*.sh
+
+# Claude Code configuration
+.claude/
+
+# Build summary files
+PACKAGE_BUILD_SUMMARY.txt
