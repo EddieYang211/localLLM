@@ -1,3 +1,13 @@
+# localLLM 1.2.1
+
+## Bug Fixes
+
+- Fix CRAN NOTE: redirect model cache to `tempdir()` during automated checks
+  so that `R CMD check` no longer creates `~/.cache/R/localLLM` in the home
+  directory (CRAN policy violation).
+- Update `hardware_profile()` example to use `\donttest{}` instead of
+  `if (interactive())` guard, per CRAN best practices.
+
 # localLLM 1.2.0
 
 ## Major Changes
@@ -142,9 +152,9 @@ Potential optimizations for future releases:
 
 ---
 
-For detailed technical information about the backend upgrade, see:
-- [UPGRADE_COMPLETE.md](../UPGRADE_COMPLETE.md)
+For more information about llama.cpp, see:
 - [llama.cpp releases](https://github.com/ggml-org/llama.cpp/releases)
+- [llama.cpp documentation](https://github.com/ggml-org/llama.cpp)
 
 # localLLM 1.1.0
 

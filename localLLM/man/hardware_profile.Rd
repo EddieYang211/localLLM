@@ -15,7 +15,7 @@ A list describing the operating system, CPU cores, total RAM (bytes), GPU inform
 Returns the cached system profile recorded by localLLM when the package was attached. The probe captures approximate CPU, RAM, and GPU capacity so that safety warnings can estimate whether a model fits the device.
 }
 \examples{
-if (interactive()) {
-  hardware_profile()
+\donttest{
+hardware_profile()
 }
 }

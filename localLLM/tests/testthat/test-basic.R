@@ -18,9 +18,8 @@ test_that("installation functions exist and work", {
 })
 
 test_that("utility functions work", {
-  skip_if_ci("Skipping utility tests in CI")
-  
-  # Test cache directory creation
+  # helper-ci.R sets LOCALLLM_CACHE_DIR to tempdir() in all automated check
+  # environments (CI, CRAN), so get_model_cache_dir() never writes to ~/.cache.
   cache_dir <- get_model_cache_dir()
   expect_type(cache_dir, "character")
   expect_true(dir.exists(cache_dir))

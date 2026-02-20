@@ -150,7 +150,10 @@ expect_function <- function(object, info = NULL, label = NULL) {
   testthat::expect_true(is.function(object), info = info)
 }
 
-# Set up test environment when this file is loaded
-if (is_ci() || is_test_mode()) {
+# Set up test environment when this file is loaded.
+# Also runs during CRAN automated checks: CRAN does not set NOT_CRAN=true
+# (devtools::test() does), so this correctly identifies CRAN check environments
+# and redirects the model cache to tempdir() to avoid writing to ~/.cache.
+if (is_ci() || is_test_mode() || !identical(Sys.getenv("NOT_CRAN"), "true")) {
   setup_test_env()
 }
