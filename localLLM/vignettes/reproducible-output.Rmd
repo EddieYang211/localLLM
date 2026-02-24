@@ -152,35 +152,49 @@ document_end()
 The log file contains a complete audit trail:
 
 ```
-================================================================================
-localLLM Analysis Log
-================================================================================
-Start Time: 2025-01-15 14:30:22 UTC
-R Version: 4.4.0
-localLLM Version: 1.1.0
-Platform: aarch64-apple-darwin22.6.0
+localLLM Run Log
+File: /path/to/analysis-log.txt
+Started: 2025-01-15 14:30:22 EST
+Ended: 2025-01-15 14:35:12 EST
+Duration: 289.9 seconds
 
---------------------------------------------------------------------------------
-Event: quick_llama call
-Time: 2025-01-15 14:30:25 UTC
-Model: Llama-3.2-3B-Instruct-Q5_K_M.gguf
-Parameters: temperature=0, max_tokens=256, seed=1234
-Input Hash: a3f2b8c9...
-Output Hash: b4c5d6e7...
---------------------------------------------------------------------------------
+Events:
+- [2025-01-15 14:30:22 EST] document_start
+    {
+      "package_version": "1.2.1",
+      "r_version": "4.4.1",
+      "platform": "aarch64-apple-darwin22.6.0",
+      "os": "Darwin",
+      "user": "researcher",
+      "working_directory": "/home/user/analysis"
+    }
 
---------------------------------------------------------------------------------
-Event: explore call
-Time: 2025-01-15 14:31:45 UTC
-Models: gemma4b, llama3b
-Prompts: 100 samples
-Engine: parallel
---------------------------------------------------------------------------------
+- [2025-01-15 14:30:25 EST] quick_llama
+    {
+      "model": "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
+      "prompt_count": 1,
+      "n_gpu_layers": 999,
+      "n_ctx": 2048,
+      "max_tokens": 100,
+      "temperature": 0,
+      "seed": 1234,
+      "auto_format": true,
+      "clean": false
+    }
 
-================================================================================
-End Time: 2025-01-15 14:35:12 UTC
-Session Hash: e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2...
-================================================================================
+- [2025-01-15 14:30:25 EST] quick_llama_hash
+    {
+      "input_hash": "a3f2b8c9...",
+      "output_hash": "b4c5d6e7..."
+    }
+
+- [2025-01-15 14:35:12 EST] document_end
+    {
+      "duration_seconds": 289.9,
+      "total_events": 4
+    }
+
+Hash (SHA-256): e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2...
 ```
 
 ## Best Practices for Reproducible Research
@@ -209,15 +223,16 @@ print(hw)
 
 ```
 #> $os
-#> [1] "macOS 14.0"
+#> [1] "Darwin"
 #>
 #> $cpu_cores
 #> [1] 10
 #>
-#> $ram_gb
-#> [1] 32
+#> $ram_total
+#> [1] 17179869184
 #>
 #> $gpu
+#> $gpu$name
 #> [1] "Apple M2 Pro"
 ```
 

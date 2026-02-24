@@ -231,8 +231,8 @@ Parallel processing uses more memory. Monitor with:
 
 ```{r}
 hw <- hardware_profile()
-cat("Available RAM:", hw$ram_gb, "GB\n")
-cat("GPU:", hw$gpu, "\n")
+cat("Available RAM:", round(hw$ram_total / 1e9, 1), "GB\n")
+cat("GPU:", hw$gpu$name, "\n")
 ```
 
 ### Batch Size Recommendations

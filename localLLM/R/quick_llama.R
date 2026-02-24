@@ -31,7 +31,7 @@
 #' chat template formatting and system prompts for instruction-tuned models.
 #'
 #' @param prompt Character string or vector of prompts to process
-#' @param model Model URL or path (default: Llama 3.2 3B Instruct Q5_K_M)
+#' @param model_path Model URL or path (default: Llama 3.2 3B Instruct Q5_K_M)
 #' @param n_threads Number of threads (default: auto-detect)
 #' @param n_gpu_layers Number of GPU layers (default: auto-detect)
 #' @param n_ctx Context size (default: 2048)
@@ -45,7 +45,6 @@
 #'   output.
 #' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable
 #' @param penalty_repeat Repetition penalty strength (default: 1.0). Set to 1.0 to disable
-#' @param min_p Minimum probability threshold (default: 0.05)
 #' @param system_prompt System prompt to add to conversation (default: "You are a helpful assistant.")
 #' @param auto_format Whether to automatically apply chat template formatting (default: TRUE)
 #' @param chat_template Custom chat template to use (default: NULL uses model's built-in template)
@@ -54,7 +53,7 @@
 #' @param progress Show a console progress bar when running parallel generation.
 #'   Default: \code{interactive()}. Has no effect for single-prompt runs.
 #' @param clean Whether to strip chat-template control tokens from the generated output.
-#'   Defaults to \code{TRUE}.
+#'   Defaults to \code{FALSE}.
 #' @param hash When `TRUE` (default), compute SHA-256 hashes for the prompts fed into the
 #'   backend and the corresponding outputs. Hashes are attached via the
 #'   `"hashes"` attribute for later inspection.
@@ -93,7 +92,7 @@
 #' }
 #'
 quick_llama <- function(prompt,
-                        model = .get_default_model(),
+                        model_path = .get_default_model(),
                         n_threads = NULL,
                         n_gpu_layers = "auto",
                         n_ctx = 2048L,
@@ -104,14 +103,13 @@ quick_llama <- function(prompt,
                         temperature = 0.0,
                         repeat_last_n = 0L,
                         penalty_repeat = 1.0,
-                        min_p = 0.05,
                         system_prompt = "You are a helpful assistant.",
                         auto_format = TRUE,
                         chat_template = NULL,
                         stream = FALSE,
                         seed = 1234L,
                         progress = interactive(),
-                        clean = TRUE,
+                        clean = FALSE,
                         hash = TRUE,
                         ...) {
   verbosity <- as.integer(verbosity)
@@ -150,7 +148,7 @@ quick_llama <- function(prompt,
   
   # Load model and context if not cached or if different model
   tryCatch({
-    .ensure_model_loaded(model, n_gpu_layers, n_ctx, n_threads, verbosity,
+    .ensure_model_loaded(model_path, n_gpu_layers, n_ctx, n_threads, verbosity,
                          n_seq_max = required_seq_max)
   }, error = function(e) {
     stop("Failed to load model: ", e$message, call. = FALSE)
@@ -223,7 +221,7 @@ quick_llama <- function(prompt,
     }
   }
 
-  model_ref <- if (is.character(model) && length(model) == 1) model else "<object>"
+  model_ref <- if (is.character(model_path) && length(model_path) == 1) model_path else "<object>"
   .document_record_event("quick_llama", list(
     model = model_ref,
     prompt_count = length(prompt),
@@ -236,7 +234,6 @@ quick_llama <- function(prompt,
     top_p = top_p,
     repeat_last_n = repeat_last_n,
     penalty_repeat = penalty_repeat,
-    min_p = min_p,
     seed = seed,
     auto_format = isTRUE(auto_format),
     clean = isTRUE(clean),
@@ -248,8 +245,8 @@ quick_llama <- function(prompt,
     input_payload <- list(
       type = "quick_llama",
       model_identifier = attr_model,
-      model_argument = if (is.character(model) && length(model) == 1) {
-        .hash_normalise_model_source(model)
+      model_argument = if (is.character(model_path) && length(model_path) == 1) {
+        .hash_normalise_model_source(model_path)
       } else {
         NA_character_
       },
@@ -263,7 +260,6 @@ quick_llama <- function(prompt,
         temperature = temperature,
         repeat_last_n = repeat_last_n,
         penalty_repeat = penalty_repeat,
-        min_p = min_p,
         seed = seed,
         auto_format = isTRUE(auto_format),
         system_prompt = system_prompt,

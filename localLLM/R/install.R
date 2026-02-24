@@ -97,7 +97,7 @@ get_lib_path <- function() {
   filename <- NULL
   if (sys == "Darwin") {
     if (arch == "arm64") filename <- "liblocalllm_macos_arm64.zip"
-    # else if (arch == "x86_64") filename <- "liblocalllm_macos_x64.zip" # Future expansion
+    else if (arch == "x86_64") filename <- "liblocalllm_macos_x64.zip"
   } else if (sys == "Windows") {
     if (arch == "x86-64") filename <- "localllm_windows_x64.zip"
   } else if (sys == "Linux") {

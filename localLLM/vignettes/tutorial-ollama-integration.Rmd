@@ -25,14 +25,14 @@ Use `list_ollama_models()` to see all GGUF models managed by Ollama:
 library(localLLM)
 
 models <- list_ollama_models()
-print(models)
+print(models[, c("name", "size_gb", "modified")])
 ```
 
 ```
-#>                name      size                                    path
-#> 1          llama3.2    2.0 GB ~/.ollama/models/blobs/sha256-6340dc32...
-#> 2      deepseek-r1:8b  4.9 GB ~/.ollama/models/blobs/sha256-8a2b7c9e...
-#> 3           gemma2:9b  5.4 GB ~/.ollama/models/blobs/sha256-9f8a7b6c...
+#>             name size_gb            modified
+#> 1       llama3.2    2.03 2025-01-10 12:00:00
+#> 2 deepseek-r1:8b    4.58 2025-01-27 00:22:49
+#> 3      gemma2:9b    5.44 2025-02-01 09:15:00
 ```
 
 ## Loading Ollama Models
@@ -110,7 +110,7 @@ available <- list_ollama_models()
 
 if (nrow(available) > 0) {
   cat("Found", nrow(available), "Ollama models:\n")
-  print(available[, c("name", "size")])
+  print(available[, c("name", "size_gb")])
 } else {
   cat("No Ollama models found. Install some with: ollama pull llama3.2\n")
 }

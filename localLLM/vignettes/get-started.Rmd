@@ -113,19 +113,19 @@ The `localLLM` backend only supports models in the GGUF format. You can find tho
 # From Hugging Face URL
 response <- quick_llama(
   "Explain quantum physics simply",
-  model = "https://huggingface.co/unsloth/gemma-3-4b-it-qat-GGUF/resolve/main/gemma-3-4b-it-qat-Q5_K_M.gguf"
+  model_path = "https://huggingface.co/unsloth/gemma-3-4b-it-qat-GGUF/resolve/main/gemma-3-4b-it-qat-Q5_K_M.gguf"
 )
 
 # From local file
 response <- quick_llama(
   "Explain quantum physics simply",
-  model = "/path/to/your/model.gguf"
+  model_path = "/path/to/your/model.gguf"
 )
 
 # From cache (name fragment)
 response <- quick_llama(
   "Explain quantum physics simply",
-  model = "Llama-3.2"
+  model_path = "Llama-3.2"
 )
 ```
 
@@ -138,9 +138,9 @@ print(cached)
 ```
 
 ```
-#>                                           name      size
-#> 1 Llama-3.2-3B-Instruct-Q5_K_M.gguf           2.1 GB
-#> 2 gemma-3-4b-it-qat-Q5_K_M.gguf               2.8 GB
+#>                                 name size_bytes            modified
+#> 1 Llama-3.2-3B-Instruct-Q5_K_M.gguf 2322153920 2025-12-05 20:01:18
+#> 2   gemma-3-4b-it-qat-Q5_K_M.gguf   2829698176 2025-12-14 19:21:11
 ```
 
 ## Customizing Generation
@@ -151,8 +151,7 @@ Control the output with various parameters:
 response <- quick_llama(
   prompt = "Write a haiku about programming",
   temperature = 0.8,      # Higher = more creative (default: 0)
-
-max_tokens = 100,       # Maximum response length
+  max_tokens = 100,       # Maximum response length
   seed = 42,              # For reproducibility
   n_gpu_layers = 999      # Use GPU if available
 )

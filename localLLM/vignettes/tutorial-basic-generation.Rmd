@@ -77,10 +77,10 @@ ctx <- context_create(
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `n_ctx` | 512 | Context window size in tokens |
-| `n_threads` | auto | Number of CPU threads |
+| `n_ctx` | 2048 | Context window size in tokens |
+| `n_threads` | 4 | Number of CPU threads |
 | `n_seq_max` | 1 | Max parallel sequences (for batch generation) |
-| `verbosity` | 0 | Logging level (0=quiet, 3=verbose) |
+| `verbosity` | 1 | Logging level (0=quiet, 3=verbose) |
 
 The context window (`n_ctx`) determines how much text the model can "see" at once. Larger values allow longer conversations but use more memory.
 
@@ -159,7 +159,7 @@ output <- generate(
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `max_tokens` | 256 | Maximum tokens to generate |
+| `max_tokens` | 100 | Maximum tokens to generate |
 | `temperature` | 0.0 | Sampling temperature (0 = greedy) |
 | `top_k` | 40 | Top-K sampling |
 | `top_p` | 1.0 | Nucleus sampling (1.0 = disabled) |
@@ -299,7 +299,7 @@ GPU acceleration provides 5-10x speedup:
 ```{r}
 # Check your hardware
 hw <- hardware_profile()
-print(hw$gpu)
+print(hw$gpu$name)
 
 # Enable GPU
 model <- model_load("model.gguf", n_gpu_layers = 999)

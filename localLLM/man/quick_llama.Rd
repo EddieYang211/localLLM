@@ -6,7 +6,7 @@
 \usage{
 quick_llama(
   prompt,
-  model = .get_default_model(),
+  model_path = .get_default_model(),
   n_threads = NULL,
   n_gpu_layers = "auto",
   n_ctx = 2048L,
@@ -17,14 +17,13 @@ quick_llama(
   temperature = 0,
   repeat_last_n = 0L,
   penalty_repeat = 1,
-  min_p = 0.05,
   system_prompt = "You are a helpful assistant.",
   auto_format = TRUE,
   chat_template = NULL,
   stream = FALSE,
   seed = 1234L,
   progress = interactive(),
-  clean = TRUE,
+  clean = FALSE,
   hash = TRUE,
   ...
 )
@@ -32,7 +31,7 @@ quick_llama(
 \arguments{
 \item{prompt}{Character string or vector of prompts to process}
 
-\item{model}{Model URL or path (default: Llama 3.2 3B Instruct Q5_K_M)}
+\item{model_path}{Model URL or path (default: Llama 3.2 3B Instruct Q5_K_M)}
 
 \item{n_threads}{Number of threads (default: auto-detect)}
 
@@ -57,8 +56,6 @@ output.}
 
 \item{penalty_repeat}{Repetition penalty strength (default: 1.0). Set to 1.0 to disable}
 
-\item{min_p}{Minimum probability threshold (default: 0.05)}
-
 \item{system_prompt}{System prompt to add to conversation (default: "You are a helpful assistant.")}
 
 \item{auto_format}{Whether to automatically apply chat template formatting (default: TRUE)}
@@ -73,7 +70,7 @@ output.}
 Default: \code{interactive()}. Has no effect for single-prompt runs.}
 
 \item{clean}{Whether to strip chat-template control tokens from the generated output.
-Defaults to \code{TRUE}.}
+Defaults to \code{FALSE}.}
 
 \item{hash}{When `TRUE` (default), compute SHA-256 hashes for the prompts fed into the
 backend and the corresponding outputs. Hashes are attached via the
