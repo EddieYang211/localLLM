@@ -62,7 +62,7 @@ hardware_profile <- function(refresh = FALSE) {
     if (!is.null(meminfo)) {
       line <- meminfo[grepl("^MemTotal:", meminfo)]
       if (length(line)) {
-        value <- as.numeric(sub("[^0-9]", "", line)) * 1024
+        value <- as.numeric(gsub("[^0-9]", "", line)) * 1024
         return(value)
       }
     }
@@ -76,6 +76,14 @@ hardware_profile <- function(refresh = FALSE) {
   NA_real_
 }
 
+.safe_system2 <- function(cmd, args = character(), ...) {
+  tryCatch(
+    system2(cmd, args, ..., stdout = TRUE, stderr = FALSE),
+    error = function(e) character(0),
+    warning = function(w) character(0)
+  )
+}
+
 .detect_gpu_info <- function(sysname) {
   info <- list(
     name = NA_character_,
@@ -85,9 +93,9 @@ hardware_profile <- function(refresh = FALSE) {
   )
   if (identical(sysname, "Linux") || .Platform$OS.type == "windows") {
     # Try NVIDIA first
-    output <- suppressWarnings(system2("nvidia-smi",
-                                       c("--query-gpu=name,memory.total", "--format=csv,noheader"),
-                                       stdout = TRUE, stderr = FALSE))
+    output <- .safe_system2("nvidia-smi",
+                            c("--query-gpu=name,memory.total",
+                              "--format=csv,noheader"))
     if (length(output) && !grepl("not found", output[1], ignore.case = TRUE)) {
       parts <- strsplit(output[1], ",")[[1]]
       if (length(parts) >= 2) {
@@ -104,9 +112,9 @@ hardware_profile <- function(refresh = FALSE) {
 
     # Try AMD GPU via rocm-smi (Linux)
     if (identical(sysname, "Linux")) {
-      rocm_output <- suppressWarnings(system2("rocm-smi",
-                                              c("--showmeminfo", "vram", "--csv"),
-                                              stdout = TRUE, stderr = FALSE))
+      rocm_output <- .safe_system2("rocm-smi",
+                                   c("--showmeminfo",
+                                     "vram", "--csv"))
       if (length(rocm_output) > 1 && !grepl("not found", rocm_output[1], ignore.case = TRUE)) {
         # Parse rocm-smi output for VRAM
         vram_line <- rocm_output[grepl("GPU\\[", rocm_output)][1]
@@ -125,7 +133,7 @@ hardware_profile <- function(refresh = FALSE) {
       }
 
       # Try lspci for AMD GPU name
-      lspci_output <- suppressWarnings(system2("lspci", stdout = TRUE, stderr = FALSE))
+      lspci_output <- .safe_system2("lspci")
       if (length(lspci_output)) {
         amd_line <- lspci_output[grepl("VGA.*AMD|VGA.*ATI|VGA.*Radeon", lspci_output, ignore.case = TRUE)][1]
         if (!is.na(amd_line)) {
@@ -139,9 +147,9 @@ hardware_profile <- function(refresh = FALSE) {
 
     # Try AMD GPU via Windows registry or wmic
     if (.Platform$OS.type == "windows") {
-      wmic_output <- suppressWarnings(system2("wmic",
-                                              c("path", "win32_VideoController", "get", "name,AdapterRAM"),
-                                              stdout = TRUE, stderr = FALSE))
+      wmic_output <- .safe_system2("wmic",
+                                   c("path", "win32_VideoController",
+                                     "get", "name,AdapterRAM"))
       if (length(wmic_output) > 1) {
         # Parse wmic output for AMD GPU
         amd_lines <- wmic_output[grepl("AMD|ATI|Radeon", wmic_output, ignore.case = TRUE)]
@@ -164,7 +172,7 @@ hardware_profile <- function(refresh = FALSE) {
 
     # Try Intel integrated GPU detection
     if (identical(sysname, "Linux")) {
-      lspci_output <- suppressWarnings(system2("lspci", stdout = TRUE, stderr = FALSE))
+      lspci_output <- .safe_system2("lspci")
       if (length(lspci_output)) {
         intel_line <- lspci_output[grepl("VGA.*Intel", lspci_output, ignore.case = TRUE)][1]
         if (!is.na(intel_line)) {
@@ -177,9 +185,9 @@ hardware_profile <- function(refresh = FALSE) {
     }
 
     if (.Platform$OS.type == "windows") {
-      wmic_output <- suppressWarnings(system2("wmic",
-                                              c("path", "win32_VideoController", "get", "name"),
-                                              stdout = TRUE, stderr = FALSE))
+      wmic_output <- .safe_system2("wmic",
+                                   c("path", "win32_VideoController",
+                                     "get", "name"))
       if (length(wmic_output) > 1) {
         intel_lines <- wmic_output[grepl("Intel.*Graphics|Intel.*UHD|Intel.*Iris", wmic_output, ignore.case = TRUE)]
         if (length(intel_lines) > 0) {
@@ -192,8 +200,8 @@ hardware_profile <- function(refresh = FALSE) {
     }
   }
   if (identical(sysname, "Darwin")) {
-    profiler <- suppressWarnings(system2("/usr/sbin/system_profiler",
-                                         c("SPDisplaysDataType"), stdout = TRUE, stderr = TRUE))
+    profiler <- .safe_system2("/usr/sbin/system_profiler",
+                              c("SPDisplaysDataType"))
     if (length(profiler)) {
       # Try to detect Apple Silicon GPU
       chipset_line <- profiler[grepl("Chipset Model:", profiler, ignore.case = TRUE)][1]
