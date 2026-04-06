@@ -1,3 +1,46 @@
+# localLLM 1.3.0
+
+## Performance Fix: Parallel Generation Speedup Restored
+
+- **Fixed `generate_parallel()` performance regression** introduced by llama.cpp b7825's new memory API
+- The `llama_memory_seq_cp()` call was dropped during the b7825 migration, causing every parallel slot to re-decode the full prompt instead of sharing the prefix
+- Restored prefix sharing via full-range copy (`p0=-1, p1=-1`), which is compatible with the new API
+- **Benchmark result**: parallel generation is now ~1.4–1.6x faster than sequential (was 0.85x — slower — before this fix)
+
+## Platform Support
+
+- **Added Intel Mac binary** — `generate()` and `generate_parallel()` now work on Intel Macs (x86_64); GPU acceleration is not available on Intel Mac, CPU inference is used
+- **Fixed `hardware_profile()` crash** on Linux and Windows when GPU diagnostic tools (`nvidia-smi`, `rocm-smi`, `clinfo`) are not installed
+
+## Backend Upgrade: llama.cpp b7825 -> b8664
+
+- **Upgraded llama.cpp backend** from b7825 (Jan 2026) to b8664 (Apr 2026)
+- **~840 builds** of improvements, bug fixes, and new model support
+
+### New Model Support (18 new architectures)
+
+- Gemma 4, Qwen 3.5, Qwen 3.5 MoE, ERNIE 4.5
+- Granite (standalone), Granite MoE, Granite Hybrid
+- JAIS-2, DeepSeek OCR, GLM-DSA, EuroBERT
+- Kanana-2, PaddleOCR-VL, ARWKV7, PLM
+- BailingMoE, DOTS1, Arcee, AFMoE
+
+### New Chat Templates
+
+- DeepSeek OCR template
+- Granite 4.0 template (with tool call support)
+
+### Build System
+
+- Added `vendor/cpp-httplib` dependency (required by updated `common/` library)
+- Added license embedding support via `cmake/license.cmake`
+
+## API Compatibility
+
+**No changes to R-level API** - All existing R code continues to work without modification.
+
+---
+
 # localLLM 1.2.1
 
 ## Bug Fixes

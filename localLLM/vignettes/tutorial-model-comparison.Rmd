@@ -33,12 +33,14 @@ models <- list(
     id = "gemma4b",
     model_path = "https://huggingface.co/unsloth/gemma-3-4b-it-qat-GGUF/resolve/main/gemma-3-4b-it-qat-Q5_K_M.gguf",
     n_gpu_layers = 999,
+    n_seq_max = 8L,
     generation = list(max_tokens = 15, seed = 92092)
   ),
   list(
     id = "llama3b",
     model_path = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
     n_gpu_layers = 999,
+    n_seq_max = 8L,
     generation = list(max_tokens = 15, seed = 92092)
   )
 )
@@ -162,17 +164,19 @@ print(report$confusion$pairwise$`gemma4b vs llama3b`)
 
 ```{r}
 # Cohen's Kappa (pairwise agreement)
+# Returns a data frame with columns: model_a, model_b, kappa, observed, expected
 print(report$reliability$cohen)
 ```
 
 ```
-#>                        kappa
-#> gemma4b vs llama3b     0.89
+#>   model_a model_b kappa  observed  expected
+#> 1 gemma4b  llama3b  0.89    ...       ...
 ```
 
 ```{r}
 # Krippendorff's Alpha (overall agreement)
-print(report$reliability$krippendorff)
+# Returns a list with: alpha, per_item, category_proportions
+print(report$reliability$krippendorff$alpha)
 ```
 
 ```
@@ -269,9 +273,9 @@ print(matrices$pairwise$`gemma4b vs llama3b`)
 
 ```{r}
 # Compute reliability metrics
-reliability <- intercoder_reliability(annotations$matrix)
+reliability <- intercoder_reliability(annotations$annotations)
 
-print(reliability$cohen)       # Cohen's Kappa
+print(reliability$cohen)       # Cohen's Kappa (data frame with model pairs)
 print(reliability$krippendorff) # Krippendorff's Alpha
 ```
 
@@ -292,12 +296,14 @@ models <- list(
     id = "gemma4b",
     model_path = "https://huggingface.co/unsloth/gemma-3-4b-it-qat-GGUF/resolve/main/gemma-3-4b-it-qat-Q5_K_M.gguf",
     n_gpu_layers = 999,
+    n_seq_max = 8L,
     generation = list(max_tokens = 15, seed = 92092)
   ),
   list(
     id = "llama3b",
     model_path = "Llama-3.2-3B-Instruct-Q5_K_M.gguf",
     n_gpu_layers = 999,
+    n_seq_max = 8L,
     generation = list(max_tokens = 15, seed = 92092)
   )
 )
@@ -324,7 +330,7 @@ report <- validate(annotations, gold = ag_news_sample$class)
 
 # 7. Review results
 print(report$confusion$vs_gold$gemma4b)
-print(report$reliability$krippendorff)
+print(report$reliability$krippendorff$alpha)
 ```
 
 ## Summary

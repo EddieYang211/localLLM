@@ -65,6 +65,8 @@ set(GGML_ALL_WARNINGS OFF CACHE BOOL "Disable warnings for clean build" FORCE)
 # Include original llama.cpp build logic (we ARE the CMakeLists.txt now)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/build-info.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/common.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/license.cmake)
+license_add_file("llama.cpp" "LICENSE")
 
 # Define version variables required by src/CMakeLists.txt (b7825 requirement)
 if (NOT DEFINED LLAMA_BUILD_NUMBER)
@@ -80,6 +82,8 @@ add_subdirectory(ggml)
 add_subdirectory(src)
 if (LLAMA_BUILD_COMMON)
     add_subdirectory(common)
+    add_subdirectory(vendor/cpp-httplib)
+    license_generate(common)
 endif()
 
 # Note: CURL is already found above conditionally

@@ -706,21 +706,10 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             return true;
         }
 
-        // Determine which tokens to decode
-        // In b7825, llama_memory_seq_cp() with partial ranges is broken for cross-stream copies
-        // So we decode the full prompt (prefix + suffix) instead of copying prefix from seq 0
-        const std::vector<llama_token>* tokens_to_decode = nullptr;
-        int start_pos = 0;
-
-        if (slot.prefix_len > 0 && prefix_ready) {
-            // Decode full prompt (prefix + suffix combined in full_tokens)
-            tokens_to_decode = slot.full_tokens;
-            start_pos = 0;
-        } else {
-            // No prefix or prefix not ready - decode suffix only
-            tokens_to_decode = &slot.suffix_tokens;
-            start_pos = slot.prefix_len;
-        }
+        // After seq_cp, the slot already has prefix KV cache at positions 0..prefix_len-1.
+        // Only decode the suffix tokens starting at position prefix_len.
+        const std::vector<llama_token>* tokens_to_decode = &slot.suffix_tokens;
+        int start_pos = slot.prefix_len;
 
         llama_batch batch = llama_batch_init(tokens_to_decode->size(), 0, 1);
         for (size_t j = 0; j < tokens_to_decode->size(); ++j) {
@@ -871,9 +860,17 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
 
             n_total_prompt += slot.n_prompt;
 
-            // Note: We no longer use llama_memory_seq_cp() because b7825's implementation
-            // doesn't support partial range copies for cross-stream sequences.
-            // Instead, decode_prompt_tokens() handles full prompt decoding.
+            // Use full-range seq_cp to copy prefix from seq 0.
+            // Seq 0 contains only prefix tokens, so full-range copy = prefix copy.
+            if (prefix_ready && slot.prefix_len > 0) {
+                llama_memory_seq_cp(mem, 0, slot.seq_id, -1, -1);
+                // Full copy includes shared_prefix_len positions, but slot.prefix_len
+                // may be smaller (e.g. entire prompt = prefix → prefix_len reduced by 1).
+                // Remove excess positions so suffix decode doesn't collide.
+                if (slot.prefix_len < (int32_t)shared_prefix_len) {
+                    llama_memory_seq_rm(mem, slot.seq_id, slot.prefix_len, -1);
+                }
+            }
 
             if (!decode_prompt_tokens(slot)) {
                 if (slot.seq_id > 0) {

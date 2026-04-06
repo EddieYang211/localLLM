@@ -130,7 +130,7 @@ model <- model_load("https://huggingface.co/private/model.gguf")
 
 ```{r}
 hw <- hardware_profile()
-cat("Available RAM:", hw$ram_gb, "GB\n")
+cat("Available RAM:", round(hw$ram_total / 1e9, 1), "GB\n")
 ```
 
 ### "Memory check failed" warning
