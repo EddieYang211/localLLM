@@ -271,7 +271,7 @@ jobs:
 
       - name: Install package
         run: |
-          devtools::install("localLLM", dependencies = TRUE, repos="https://cloud.r-project.org")
+          options(repos = c(CRAN = "https://cloud.r-project.org")); devtools::install("localLLM", dependencies = TRUE)
         shell: Rscript {0}
         working-directory: .
 
