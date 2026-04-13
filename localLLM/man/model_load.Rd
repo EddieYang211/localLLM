@@ -45,7 +45,12 @@ Useful for updating to newer model versions}
 
 \item{verify_integrity}{Verify file integrity using checksums when available (default: TRUE)}
 
-\item{check_memory}{Check if sufficient system memory is available before loading (default: TRUE)}
+\item{check_memory}{Check if sufficient system memory is available before loading (default: TRUE).
+When memory is insufficient, a \code{warning()} is issued first (describing the size mismatch),
+followed by a \code{stop()} that aborts loading. If \code{model_load()} is wrapped in
+\code{tryCatch(warning = ...)}, the warning handler intercepts execution before \code{stop()}
+runs: loading is still aborted, but the \code{error =} handler will not fire. To reliably catch
+the cancellation, use \code{tryCatch(error = ...)} rather than a \code{warning =} handler.}
 
 \item{hf_token}{Optional Hugging Face access token to set during model resolution. Defaults to the existing `HF_TOKEN` environment variable.}
 

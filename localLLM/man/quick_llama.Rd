@@ -20,7 +20,6 @@ quick_llama(
   system_prompt = "You are a helpful assistant.",
   auto_format = TRUE,
   chat_template = NULL,
-  stream = FALSE,
   seed = 1234L,
   progress = interactive(),
   clean = FALSE,
@@ -61,8 +60,6 @@ output.}
 \item{auto_format}{Whether to automatically apply chat template formatting (default: TRUE)}
 
 \item{chat_template}{Custom chat template to use (default: NULL uses model's built-in template)}
-
-\item{stream}{Whether to stream output (default: auto-detect based on interactive())}
 
 \item{seed}{Random seed for reproducibility (default: 1234)}
 

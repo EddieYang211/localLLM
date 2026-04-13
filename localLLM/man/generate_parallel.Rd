@@ -14,7 +14,8 @@ generate_parallel(
   repeat_last_n = 0L,
   penalty_repeat = 1,
   seed = 1234L,
-  progress = FALSE,
+  progress = interactive(),
+  verbosity = 0L,
   clean = FALSE,
   hash = TRUE
 )
@@ -38,8 +39,20 @@ generate_parallel(
 
 \item{seed}{Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output}
 
-\item{progress}{If \code{TRUE}, displays a console progress bar indicating batch
-completion status while generations are running (default: FALSE).}
+\item{progress}{Show a console progress bar while batches run. Defaults to
+\code{interactive()}: shown in an interactive R session, suppressed in
+scripts and \code{R CMD check}.}
+
+\item{verbosity}{Control backend logging during generation (default: 0L).
+Larger numbers print more detail: \code{0} shows only errors, \code{1}
+adds warnings, \code{2} prints informational messages, and \code{3}
+enables the most verbose debug output. Negative values fully suppress
+backend output. Defaults to quiet (\code{0}) so that only the progress
+bar is visible during typical batch runs, matching \code{\link{generate}}.
+This differs from \code{\link{model_load}} and \code{\link{context_create}}
+(default \code{1L}), which run once per session and benefit from warnings
+being visible. Raise to \code{2L} or \code{3L} when debugging llama.cpp
+internals.}
 
 \item{clean}{If TRUE, remove common chat-template control tokens from each generated text (default: FALSE).}
 
@@ -52,4 +65,9 @@ Character vector of generated texts
 }
 \description{
 Generate Text in Parallel for Multiple Prompts
+}
+\details{
+When more prompts are supplied than the context can hold in parallel
+  (`n_seq_max - 1`), the function automatically processes them in sequential
+  batches while preserving the original ordering of results.
 }
