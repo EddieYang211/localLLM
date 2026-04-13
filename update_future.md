@@ -1,6 +1,6 @@
 # localLLM Future Feature Roadmap
 
-> Based on llama.cpp b8664 (2026-04-04) capability analysis.
+> Based on llama.cpp b8766 (2026-04-12) capability analysis.
 > These features are available in the llama.cpp backend and can be exposed to R users by adding bridge code.
 
 ---
@@ -183,6 +183,26 @@ Supported models in b8664: InternVL, DeepSeek OCR, Phi-4 Vision, LightOnOCR, Nem
 
 ---
 
+## Workaround: `apply_chat_template()` for Gemma 4 (Temporary Patch)
+
+**Status**: Hardcoded fallback in place. Upstream fix pending in llama.cpp.
+
+**Background**: Gemma 4 introduced a new chat format (`<|turn>role\ncontent<turn|>\n`) that is completely different from Gemma 2/3 (`<start_of_turn>`). llama.cpp's `llama_chat_apply_template()` detects templates via heuristic string matching and does not recognize the new `<|turn>` format → returns -1.
+
+**Current fix** (`custom_files/localllm_capi.cpp`, in `localllm_apply_chat_template()`):
+When `llama_chat_apply_template()` returns -1, check `general.architecture` via `llama_model_meta_val_str()`. If `"gemma4"`, apply the format manually:
+```
+<|turn>system\n{system_content}<turn|>\n
+<|turn>user\n{user_content}<turn|>\n
+<|turn>model\n<|channel>thought\n<channel|>   ← generation prompt (suppresses thinking by default)
+```
+
+**Limitations**: Covers simple conversation only. Tool calls, thinking mode, and multi-modal content are not handled by the fallback.
+
+**Upstream fix needed**: llama.cpp should add `<|turn>` to `llm_chat_detect_template()` in `src/llama-chat.cpp` (or add a Gemma 4 template entry to `llm_chat_apply_template()`). Once merged upstream, our fallback can be removed.
+
+---
+
 ## Summary
 
 | Feature | Effort | API Stability | User Value | Priority |
@@ -197,7 +217,25 @@ Supported models in b8664: InternVL, DeepSeek OCR, Phi-4 Vision, LightOnOCR, Nem
 
 ---
 
-## Bug Fix: Robust Multi-Token EOG Detection (Priority: MEDIUM)
+## Feature: `stop` Parameter for User-Defined Antiprompts (replaces EOG bug fix)
+
+**Background**: `<|start_header_id|>` is intentionally excluded from llama.cpp's EOG whitelist. llama.cpp itself logs "control token: 128006 <|start_header_id|> is not marked as EOG" and handles this via user-supplied `--reverse-prompt`. We decided not to add more hardcoded stop sequences (risk of silently truncating valid output). Instead, expose a `stop` parameter.
+
+**What**: Add `stop = character(0)` to `generate()` and `generate_parallel()`. Each string in `stop` acts as an antiprompt — generation halts and the stop string is trimmed from output when it appears.
+
+**Changes needed**:
+| Layer | File | Changes |
+|-------|------|---------|
+| C bridge | `localllm_capi.cpp` | Add `stop_strings` array param to `localllm_generate()` / `localllm_generate_parallel()`; after appending each token piece, check if `generated_text` ends with any stop string and truncate+break |
+| Proxy | `proxy.h/cpp` | Update function signatures |
+| Rcpp | `interface.cpp` | Pass `stop` character vector through |
+| R | `api.R` | Add `stop = character(0)` to `generate()` and `generate_parallel()` |
+
+**Estimated effort**: ~80-120 lines
+
+---
+
+## Bug Fix: Robust Multi-Token EOG Detection (Priority: LOW — see feature above)
 
 **Problem**: `generate()` and `generate_parallel()` have incomplete EOG (end-of-generation) detection for Llama 3.x models.
 
@@ -220,3 +258,19 @@ Supported models in b8664: InternVL, DeepSeek OCR, Phi-4 Vision, LightOnOCR, Nem
 - Future models require no code changes
 
 **Files to change**: `custom_files/localllm_capi.cpp` — `localllm_generate()` (~line 415) and `localllm_generate_parallel()` (~line 1043)
+
+---
+
+## Bug Fix: C-Layer Memory Guard in `c_r_model_load_safe` (Priority: LOW)
+
+**Problem**: The memory check in `model_load()` lives entirely in the R layer (`.check_model_memory_requirements()`). Users who explicitly pass `check_memory = FALSE`, or developers who add a new R function that calls `c_r_model_load_safe` without invoking the R-layer check, bypass all guards. When llama.cpp mmap-loads a file that exceeds physical RAM, macOS OOM-kills the entire R process with no error message — RStudio silently crashes.
+
+**When this matters**:
+- User passes `check_memory = FALSE` and the model truly doesn't fit (intentional bypass, but crash is still bad UX)
+- Future developer adds a code path that calls `.Call("c_r_model_load_safe", ...)` without calling `.check_model_memory_requirements()` first
+
+**Recommended fix**: Add a lightweight memory check inside `c_r_model_load_safe` in `localllm_capi.cpp`, before the `llama_model_load_from_file()` call. If available memory is below estimated requirement, throw `std::runtime_error` (which Rcpp converts to a clean R `stop()`) instead of proceeding to mmap.
+
+**Note**: This should be treated as a last-resort guard, not a replacement for the R-layer check. The R layer handles interactive user prompts; the C layer should only hard-stop to prevent a crash.
+
+**Files to change**: `custom_files/localllm_capi.cpp` — `localllm_model_load()` or equivalent, before the call to `llama_model_load_from_file()`

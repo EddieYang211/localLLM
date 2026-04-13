@@ -55,6 +55,7 @@ model <- model_load(
 | `n_gpu_layers` | 0 | Number of layers to offload to GPU |
 | `use_mmap` | TRUE | Memory-map the model file |
 | `use_mlock` | FALSE | Lock model in RAM (prevents swapping) |
+| `verbosity` | 1 | Logging level (0=silent, 1=warnings, 2=info, 3=debug) |
 
 ## Step 2: Creating a Context
 
@@ -80,7 +81,7 @@ ctx <- context_create(
 | `n_ctx` | 2048 | Context window size in tokens |
 | `n_threads` | 4 | Number of CPU threads |
 | `n_seq_max` | 1 | Max parallel sequences (for batch generation) |
-| `verbosity` | 1 | Logging level (0=quiet, 3=verbose) |
+| `verbosity` | 1 | Logging level (0=silent, 1=warnings, 2=info, 3=debug) |
 
 The context window (`n_ctx`) determines how much text the model can "see" at once. Larger values allow longer conversations but use more memory.
 
@@ -166,6 +167,7 @@ output <- generate(
 | `repeat_last_n` | 0 | Window for repetition penalty |
 | `penalty_repeat` | 1.0 | Repetition penalty multiplier |
 | `seed` | 1234 | Random seed |
+| `verbosity` | 0 | Logging level (0=silent, 1=warnings, 2=info, 3=debug) |
 
 ## Complete Example
 
@@ -292,7 +294,42 @@ ctx <- context_create(model, n_ctx = 4096)
 ctx <- context_create(model, n_ctx = 8192)
 ```
 
-### 3. Use GPU When Available
+### 3. Controlling Log Output (verbosity)
+
+All core functions accept a `verbosity` parameter that controls how much the backend prints to the console:
+
+| Level | What you see |
+|-------|-------------|
+| `0` | Nothing — completely silent |
+| `1` | Warnings only (hardware limitations, context size notes) |
+| `2` | Informational messages (model metadata, memory allocation) |
+| `3` | Full debug output |
+
+**Default levels reflect typical usage patterns:**
+
+- `model_load()` and `context_create()` default to `verbosity = 1` — they run once per session, so hardware warnings and memory notes should be visible.
+- `generate()` and `generate_parallel()` default to `verbosity = 0` — they are called in loops or on large batches, where per-call log lines would be noisy.
+
+```{r}
+# Default: loading is verbose enough to show warnings (verbosity = 1)
+model <- model_load("model.gguf")
+ctx   <- context_create(model)
+
+# Generation is silent by default (verbosity = 0)
+result <- generate(ctx, prompt)
+
+# Fully silent session — useful in non-interactive scripts or pipelines
+model  <- model_load("model.gguf",  verbosity = 0)
+ctx    <- context_create(model,     verbosity = 0)
+result <- generate(ctx, prompt,     verbosity = 0)
+
+# Verbose loading — see full model metadata and memory layout
+model <- model_load("model.gguf", verbosity = 2)
+```
+
+Note: `backend_init()` always prints one line (`localLLM backend library loaded successfully.`) regardless of verbosity. This is a one-time initialisation message from the R layer and cannot be suppressed.
+
+### 4. Use GPU When Available
 
 GPU acceleration provides 5-10x speedup:
 

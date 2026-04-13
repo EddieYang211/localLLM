@@ -69,7 +69,13 @@ bool localllm_api_init(platform_dlhandle_t handle) {
         // Load memory checking functions
         LOAD_SYMBOL(handle, estimate_model_memory);
         LOAD_SYMBOL(handle, check_memory_available);
-        
+
+        // Load verbosity control
+        LOAD_SYMBOL(handle, set_verbosity);
+
+        // Load GGUF metadata function
+        LOAD_SYMBOL(handle, model_metadata);
+
         return true;
         
     } catch (const std::exception& e) {

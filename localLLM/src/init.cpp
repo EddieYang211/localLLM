@@ -50,6 +50,12 @@ extern "C" {
   
   // Test function for debugging
   SEXP r_tokenize_test(SEXP model_ptr);
+
+  // Verbosity control
+  SEXP r_set_verbosity(SEXP verbosity);
+
+  // GGUF metadata
+  SEXP r_model_metadata(SEXP model_ptr);
 }
 
 // Define C routine table
@@ -99,7 +105,13 @@ static const R_CallMethodDef CallEntries[] = {
   
   // Test function
   {"c_r_tokenize_test", (DL_FUNC) &r_tokenize_test, 1},
-  
+
+  // Verbosity control
+  {"c_r_set_verbosity", (DL_FUNC) &r_set_verbosity, 1},
+
+  // GGUF metadata
+  {"c_r_model_metadata", (DL_FUNC) &r_model_metadata, 1},
+
   {NULL, NULL, 0}
 };
 

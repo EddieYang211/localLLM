@@ -191,6 +191,27 @@ model <- model_load("model.gguf", n_gpu_layers = 20)
 
 ## Generation Issues
 
+### Backend prints too many log messages
+
+**Problem**: `model_load()` or `context_create()` print hardware information, model metadata, or other log lines that clutter the console or appear in knitted documents and `R CMD check` output.
+
+**Solution**: Reduce the verbosity level:
+
+```{r}
+# Default (verbosity = 1): warnings only — hardware limits, context size notes
+model <- model_load("model.gguf")
+
+# Fully silent loading
+model <- model_load("model.gguf",  verbosity = 0)
+ctx   <- context_create(model,     verbosity = 0)
+```
+
+Verbosity levels: `0` = silent, `1` = warnings only (default for `model_load` and `context_create`), `2` = informational messages, `3` = full debug output. `generate()` and `generate_parallel()` already default to `verbosity = 0`.
+
+Note: `backend_init()` always prints one line (`localLLM backend library loaded successfully.`) regardless of verbosity; this cannot be suppressed.
+
+---
+
 ### Output is garbled or nonsensical
 
 **Problem**: The model produces meaningless text.

@@ -5,34 +5,38 @@
 using namespace Rcpp;
 
 // --- Helper for error checking ---
+// Uses Rf_error (longjmp) instead of Rcpp::stop (C++ exception) because these
+// functions are extern "C" and registered via R_CallMethodDef.  A C++ exception
+// thrown here would cross the C boundary with no catch handler, triggering
+// std::terminate() and crashing R.
 void check_error(localllm_error_code code, const char* error_message) {
     if (code != LOCALLLM_SUCCESS) {
-        stop(error_message ? error_message : "An unknown error occurred in the backend C-API.");
+        Rf_error("%s", error_message ? error_message : "An unknown error occurred in the backend C-API.");
     }
 }
 
 // --- Validation Macros for Crash Prevention ---
 #define CHECK_API_LOADED() \
     if (!localllm_api_is_loaded()) { \
-        stop("Backend library is not loaded. Please run install_localLLM() first."); \
+        Rf_error("Backend library is not loaded. Please run install_localLLM() first."); \
     }
 
 #define CHECK_MODEL_PTR(model_ptr) \
     localllm_model_handle model = static_cast<localllm_model_handle>(R_ExternalPtrAddr(model_ptr)); \
     if (!model) { \
-        stop("Invalid model handle: model may have been freed or is not a valid model object."); \
+        Rf_error("Invalid model handle: model may have been freed or is not a valid model object."); \
     }
 
 #define CHECK_CONTEXT_PTR(ctx_ptr) \
     localllm_context_handle ctx = static_cast<localllm_context_handle>(R_ExternalPtrAddr(ctx_ptr)); \
     if (!ctx) { \
-        stop("Invalid context handle: context may have been freed or is not a valid context object."); \
+        Rf_error("Invalid context handle: context may have been freed or is not a valid context object."); \
     }
 
 // Safe string construction that handles NULL with error
 inline std::string safe_string(const char* str, const char* name) {
     if (!str) {
-        stop(std::string("Unexpected NULL string for: ") + name);
+        Rf_error("Unexpected NULL string for: %s", name);
     }
     return std::string(str);
 }
@@ -62,35 +66,35 @@ extern "C" {
 
 void r_localllm_api_init(SEXP path_sexp) {
     if (TYPEOF(path_sexp) != STRSXP || LENGTH(path_sexp) != 1) {
-        stop("Expected character string for library path");
+        Rf_error("Expected character string for library path");
     }
-    
+
     const char* lib_path = CHAR(STRING_ELT(path_sexp, 0));
     if (!lib_path || strlen(lib_path) == 0) {
-        stop("Invalid library path");
+        Rf_error("Invalid library path");
     }
-    
+
     platform_dlhandle_t handle = PLATFORM_RTLD_DEFAULT;
     bool success = localllm_api_init(handle);
-    
+
     if (!success) {
         handle = platform_dlopen(lib_path, PLATFORM_RTLD_LAZY | PLATFORM_RTLD_GLOBAL);
         if (!handle) {
             const char* error = platform_dlerror();
-            stop(std::string("Failed to open library: ") + (error ? error : "unknown error"));
+            Rf_error("Failed to open library: %s", error ? error : "unknown error");
         }
-        
+
         success = localllm_api_init(handle);
         if (!success) {
             platform_dlclose(handle);
-            stop("Failed to initialize localllm API: unable to load required symbols");
+            Rf_error("Failed to initialize localllm API: unable to load required symbols");
         }
     }
 }
 
 SEXP r_backend_init() {
     if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
+        Rf_error("Backend library is not loaded. Please run install_localLLM() first.");
     }
     const char* error_message = nullptr;
     check_error(localllm_api.backend_init(&error_message), error_message);
@@ -106,7 +110,7 @@ SEXP r_backend_free() {
 
 SEXP r_model_load(SEXP model_path, SEXP n_gpu_layers, SEXP use_mmap, SEXP use_mlock) {
     if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
+        Rf_error("Backend library is not loaded. Please run install_localLLM() first.");
     }
     std::string model_path_str = as<std::string>(model_path);
     int n_gpu_layers_int = as<int>(n_gpu_layers);
@@ -127,7 +131,7 @@ SEXP r_model_load(SEXP model_path, SEXP n_gpu_layers, SEXP use_mmap, SEXP use_ml
 
 SEXP r_model_load_safe(SEXP model_path, SEXP n_gpu_layers, SEXP use_mmap, SEXP use_mlock, SEXP check_memory, SEXP verbosity) {
     if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
+        Rf_error("Backend library is not loaded. Please run install_localLLM() first.");
     }
     std::string model_path_str = as<std::string>(model_path);
     int n_gpu_layers_int = as<int>(n_gpu_layers);
@@ -150,7 +154,7 @@ SEXP r_model_load_safe(SEXP model_path, SEXP n_gpu_layers, SEXP use_mmap, SEXP u
 
 SEXP r_estimate_model_memory(SEXP model_path) {
     if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
+        Rf_error("Backend library is not loaded. Please run install_localLLM() first.");
     }
     
     std::string model_path_str = as<std::string>(model_path);
@@ -158,7 +162,7 @@ SEXP r_estimate_model_memory(SEXP model_path) {
     size_t estimated_memory = localllm_api.estimate_model_memory(model_path_str.c_str(), &error_message);
     
     if (estimated_memory == 0 && error_message) {
-        stop(error_message);
+        Rf_error("%s", error_message);
     }
     
     return NumericVector::create(static_cast<double>(estimated_memory));
@@ -166,7 +170,7 @@ SEXP r_estimate_model_memory(SEXP model_path) {
 
 SEXP r_check_memory_available(SEXP required_bytes) {
     if (!localllm_api_is_loaded()) {
-        stop("Backend library is not loaded. Please run install_localLLM() first.");
+        Rf_error("Backend library is not loaded. Please run install_localLLM() first.");
     }
     
     double required_bytes_double = as<double>(required_bytes);
@@ -318,7 +322,7 @@ SEXP r_generate_parallel(SEXP ctx_ptr, SEXP prompts, SEXP max_tokens, SEXP top_k
         if (results_c[i]) {
             results_r[i] = std::string(results_c[i]);
         } else {
-            stop("Unexpected NULL result for prompt at index " + std::to_string(i));
+            Rf_error("Unexpected NULL result for prompt at index %d", (int)i);
         }
     }
     if (localllm_api.free_string_array) {
@@ -458,7 +462,7 @@ SEXP r_tokenize_test(SEXP model_ptr) {
             error_msg += ": ";
             error_msg += error_message;
         }
-        stop(error_msg);
+        Rf_error("%s", error_msg.c_str());
     }
     
     IntegerVector tokens_r(n_tokens_c);
@@ -477,13 +481,13 @@ SEXP r_tokenize_test(SEXP model_ptr) {
 
 extern "C" SEXP c_r_download_model(SEXP model_url_sexp, SEXP output_path_sexp, SEXP show_progress_sexp) {
     if (TYPEOF(model_url_sexp) != STRSXP || LENGTH(model_url_sexp) != 1) {
-        stop("Expected character string for model_url");
+        Rf_error("Expected character string for model_url");
     }
     if (TYPEOF(output_path_sexp) != STRSXP || LENGTH(output_path_sexp) != 1) {
-        stop("Expected character string for output_path");
+        Rf_error("Expected character string for output_path");
     }
     if (TYPEOF(show_progress_sexp) != LGLSXP || LENGTH(show_progress_sexp) != 1) {
-        stop("Expected logical value for show_progress");
+        Rf_error("Expected logical value for show_progress");
     }
     
     const char* model_url = CHAR(STRING_ELT(model_url_sexp, 0));
@@ -499,18 +503,18 @@ extern "C" SEXP c_r_download_model(SEXP model_url_sexp, SEXP output_path_sexp, S
 
 extern "C" SEXP c_r_resolve_model(SEXP model_url_sexp) {
     if (TYPEOF(model_url_sexp) != STRSXP || LENGTH(model_url_sexp) != 1) {
-        stop("Expected character string for model_url");
+        Rf_error("Expected character string for model_url");
     }
-    
+
     const char* model_url = CHAR(STRING_ELT(model_url_sexp, 0));
     char* resolved_path = nullptr;
     const char* error_message = nullptr;
-    
+
     localllm_error_code code = localllm_api.resolve_model(model_url, &resolved_path, &error_message);
     check_error(code, error_message);
-    
+
     if (!resolved_path) {
-        stop("Failed to resolve model path");
+        Rf_error("Failed to resolve model path");
     }
     
     SEXP result = PROTECT(Rf_allocVector(STRSXP, 1));
@@ -520,6 +524,33 @@ extern "C" SEXP c_r_resolve_model(SEXP model_url_sexp) {
     localllm_api.free_string(resolved_path);
     
     UNPROTECT(1);
+    return result;
+}
+
+SEXP r_set_verbosity(SEXP verbosity_sexp) {
+    CHECK_API_LOADED();
+    int verbosity = as<int>(verbosity_sexp);
+    localllm_api.set_verbosity(verbosity);
+    return R_NilValue;
+}
+
+SEXP r_model_metadata(SEXP model_ptr) {
+    CHECK_API_LOADED();
+    CHECK_MODEL_PTR(model_ptr);
+    char** keys = nullptr;
+    char** values = nullptr;
+    int32_t n = 0;
+    const char* error_message = nullptr;
+    check_error(localllm_api.model_metadata(model, &keys, &values, &n, &error_message), error_message);
+    CharacterVector result(n);
+    CharacterVector names(n);
+    for (int32_t i = 0; i < n; ++i) {
+        names[i]  = keys[i]   ? keys[i]   : "";
+        result[i] = values[i] ? values[i] : "";
+    }
+    result.attr("names") = names;
+    if (keys)   localllm_api.free_string_array(keys,   n);
+    if (values) localllm_api.free_string_array(values, n);
     return result;
 }
 

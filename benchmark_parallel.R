@@ -16,6 +16,7 @@ max_tok  <- 50L
 
 # ─── Load model & build prompts ───────────────────────────────────────────────
 model <- model_load(llama_path, n_gpu_layers = 999)
+cat(sprintf("GPU layers requested: %d (check Metal buffer in log above)\n\n", 999L))
 
 cat("Building", n, "prompts...\n")
 all_prompts <- sapply(seq_len(n), function(i) {

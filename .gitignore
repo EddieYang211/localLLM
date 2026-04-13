@@ -62,6 +62,8 @@ rsconnect/
 
 # Test files and results
 test_*.R
+test_*_output.txt
+benchmark_*_output.txt
 *.csv
 classification_results*.csv
 

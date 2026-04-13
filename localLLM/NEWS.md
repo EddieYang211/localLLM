@@ -1,3 +1,50 @@
+# localLLM (development)
+
+## New Functions
+
+- **`model_metadata(model)`** — returns all GGUF key-value metadata as a named character vector. Useful for inspecting model architecture, quantization type, and embedded chat template. Example: `model_metadata(model)["tokenizer.chat_template"]`.
+
+## Bug Fixes
+
+- **Fixed `apply_chat_template()` failing for Gemma 4 models** — Gemma 4 uses a new `<|turn>` / `<turn|>` chat format (different from Gemma 2/3's `<start_of_turn>`). llama.cpp's template detection does not recognize this format and returns -1. Added an architecture-based fallback in `localllm_capi.cpp`: when `llama_chat_apply_template()` fails and the model architecture is `"gemma4"`, the correct format is applied directly. Thinking output is suppressed by default via `<|channel>thought\n<channel|>` in the generation prompt. Tool calls and multimodal content are not handled by the fallback.
+
+## Backend
+
+- **Upgraded llama.cpp backend from b8664 → b8766** — 102 builds of improvements. Gemma 4 audio conformer encoder support, various bug fixes. The Gemma 4 template issue is not fixed upstream in this version; our local fallback is the active workaround.
+
+## Bug Fixes
+
+- **Fixed verbosity not forwarded in `quick_llama()`** — `verbosity` parameter was accepted but silently dropped when passed through to `.generate_single()` and `.generate_multiple()`, so backend logging level had no effect during `quick_llama()` calls. Now correctly forwarded to `generate()` and `generate_parallel()`.
+
+- **Fixed backend errors crashing R instead of being catchable** — All `Rcpp::stop()` calls in `src/interface.cpp` replaced with `Rf_error()`. `stop()` throws a C++ exception which crosses the C boundary (`.Call()` registration) and triggers `std::terminate()`, killing the R process. `Rf_error()` uses `longjmp` which R's condition system can intercept, so `tryCatch()` now works correctly for all backend errors including the OOM guard.
+
+- **Fixed model-loading progress dots leaking to stderr with `verbosity = 0`** — `llama_model_load_from_file()` has its own `progress_callback` that prints dots to stderr independently of the log callback system. Now set to a no-op when `verbosity < 2` in `localllm_model_load_safe()`. Model loading is fully silent at the default generation verbosity.
+
+## Behavior Changes
+
+- **`generate_parallel(progress)` now defaults to `interactive()`** — previously defaulted to `TRUE`, which printed carriage-return-based progress bars to log files and `R CMD check` output. The new default shows the progress bar only in interactive R sessions and suppresses it in scripts and automated checks.
+- **`quick_llama(progress)` now defaults to `interactive()`** — same rationale as above; no effect on single-prompt calls.
+
+## API Changes
+
+- **Removed `quick_llama(stream)` parameter** — the `stream` argument was present in the function signature but was never passed to any downstream function (it was placeholder code with a comment "available for future use"). Removed to avoid user confusion.
+
+## Backend
+
+- **New `localllm_set_verbosity()` C API** — added to the backend binary and wired through the proxy layer (`proxy.h/cpp`, `interface.cpp`, `init.cpp`). Enables per-call verbosity control at the C level (integer 0–3, negative = fully silent). Called automatically by `generate()`, `generate_parallel()`, `model_load()`, and `context_create()` before each C invocation.
+
+- **C-layer OOM crash guard in `localllm_model_load_safe()`** — added a last-resort memory check that fires even when `check_memory = FALSE`. If the model file is larger than total physical RAM, the function now returns a clean error (`"Model file (X.X GB) exceeds total physical RAM (Y.Y GB)..."`) instead of proceeding to `llama_model_load_from_file()` and letting macOS OOM-kill the R process silently. The guard only blocks provably-impossible loads (file size > total RAM) and does not interfere with the existing R-layer check. Supported on macOS (`sysctl hw.memsize`), Linux (`/proc/meminfo MemTotal`), and Windows (`GlobalMemoryStatusEx`).
+
+## Known Issues
+
+- **R-layer `model_load()` messages not suppressed by `verbosity = 0`** — Two R-level `message()` calls in `api.R` ("Using cached model: ..." and the GPU/unified-memory info line) print unconditionally regardless of `verbosity`. The `verbosity` parameter controls only the C backend log level; these R-layer informational messages are a separate code path not yet gated on verbosity. Confirmed against Gemma 4 26B-A4B (IQ2_XXS) on 2026-04-12.
+
+## Documentation
+
+- **Verbosity dual-default design now documented** — `generate()` and `generate_parallel()` roxygen entries now explain why they default to `0L` (called in loops, per-call logs would be noisy) and cross-reference `model_load()`/`context_create()` (default `1L`, run once per session, warnings should be visible).
+
+---
+
 # localLLM 1.3.0
 
 ## Performance Fix: Parallel Generation Speedup Restored

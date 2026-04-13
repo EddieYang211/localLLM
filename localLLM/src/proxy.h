@@ -51,6 +51,12 @@ struct localllm_api_ptrs {
     // Memory checking functions
     decltype(&localllm_estimate_model_memory) estimate_model_memory;
     decltype(&localllm_check_memory_available) check_memory_available;
+
+    // Verbosity control
+    decltype(&localllm_set_verbosity) set_verbosity;
+
+    // GGUF metadata
+    decltype(&localllm_model_metadata) model_metadata;
 };
 
 // Declare a global function pointer structure instance

@@ -220,12 +220,64 @@ LOCALLLM_API localllm_error_code localllm_model_load_safe(const char* model_path
             }
         }
         
+        // Last-resort memory guard: fires even when check_memory=false.
+        // Blocks only when the model file is larger than total physical RAM —
+        // a condition where mmap loading will cause an OOM crash on macOS/Linux
+        // rather than a clean error.  This is NOT a replacement for the R-layer
+        // check; it is a hard backstop against process-killing OOM.
+        {
+            size_t total_ram = 0;
+#if defined(_WIN32)
+            MEMORYSTATUSEX ms;
+            ms.dwLength = sizeof(ms);
+            if (GlobalMemoryStatusEx(&ms)) {
+                total_ram = static_cast<size_t>(ms.ullTotalPhys);
+            }
+#elif defined(__APPLE__)
+            {
+                int64_t phys = 0;
+                size_t sz = sizeof(phys);
+                if (sysctlbyname("hw.memsize", &phys, &sz, NULL, 0) == 0 && phys > 0) {
+                    total_ram = static_cast<size_t>(phys);
+                }
+            }
+#elif defined(__linux__)
+            {
+                std::ifstream mi("/proc/meminfo");
+                std::string line;
+                while (std::getline(mi, line)) {
+                    if (line.compare(0, 9, "MemTotal:") == 0) {
+                        total_ram = std::stoull(line.substr(9)) * 1024;
+                        break;
+                    }
+                }
+            }
+#endif
+            if (total_ram > 0 && file_size > total_ram) {
+                restore_log_callback();
+                char msg[256];
+                std::snprintf(msg, sizeof(msg),
+                    "Model file (%.1f GB) exceeds total physical RAM (%.1f GB). "
+                    "Loading would cause an out-of-memory crash. "
+                    "Use a smaller or more heavily quantized model.",
+                    file_size / 1073741824.0,
+                    total_ram / 1073741824.0);
+                set_error(error_message, msg);
+                return LOCALLLM_ERROR;
+            }
+        }
+
         // Load the model with enhanced error handling
         llama_model_params model_params = llama_model_default_params();
         model_params.n_gpu_layers = n_gpu_layers;
         model_params.use_mmap = use_mmap;
         model_params.use_mlock = use_mlock;
-        
+
+        // Suppress model-loading progress dots when verbosity < 2
+        if (verbosity < 2) {
+            model_params.progress_callback = [](float, void*) -> bool { return true; };
+        }
+
         llama_model* model = llama_model_load_from_file(model_path, model_params);
         if (model == nullptr) {
             restore_log_callback();
@@ -341,8 +393,41 @@ LOCALLLM_API localllm_error_code localllm_apply_chat_template(localllm_model_han
     // Step 2: call llama_chat_apply_template (standard 6-parameter version)
     int32_t res = llama_chat_apply_template(effective_tmpl, messages_vec.data(), n_messages, add_ass, buffer.data(), buffer.size()); 
     
-    if (res < 0) { 
-        // Provide more detailed error information
+    if (res < 0) {
+        // Fallback: architecture-based template for models not recognized by llama_chat_apply_template
+        char arch_buf[64] = {0};
+        llama_model_meta_val_str(model, "general.architecture", arch_buf, sizeof(arch_buf));
+
+        if (strcmp(arch_buf, "gemma4") == 0) {
+            // Gemma 4 uses <|turn>role\ncontent<turn|>\n format (different from Gemma 2/3)
+            std::string formatted;
+            size_t msg_start = 0;
+
+            // System message gets its own <|turn>system block
+            if (n_messages > 0 && messages_in[0].role && strcmp(messages_in[0].role, "system") == 0) {
+                formatted += "<|turn>system\n";
+                formatted += (messages_in[0].content ? messages_in[0].content : "");
+                formatted += "<turn|>\n";
+                msg_start = 1;
+            }
+
+            for (size_t i = msg_start; i < n_messages; ++i) {
+                std::string role = messages_in[i].role ? messages_in[i].role : "user";
+                std::string content = messages_in[i].content ? messages_in[i].content : "";
+                if (role == "assistant") role = "model";
+                formatted += "<|turn>" + role + "\n" + content + "<turn|>\n";
+            }
+
+            if (add_ass) {
+                // <|channel>thought\n<channel|> suppresses thinking output by default
+                formatted += "<|turn>model\n<|channel>thought\n<channel|>";
+            }
+
+            *result_out = string_to_c_str(formatted);
+            return LOCALLLM_SUCCESS;
+        }
+
+        // Unknown template — report error
         std::string error_msg = "Failed to apply chat template. Error code: " + std::to_string(res);
         if (res == -1) {
             error_msg += " (template not found or invalid)";
@@ -354,8 +439,8 @@ LOCALLLM_API localllm_error_code localllm_apply_chat_template(localllm_model_han
         } else {
             error_msg += ". Using model's built-in template.";
         }
-        set_error(error_message, error_msg); 
-        return LOCALLLM_ERROR; 
+        set_error(error_message, error_msg);
+        return LOCALLLM_ERROR;
     } 
     
     *result_out = string_to_c_str(std::string(buffer.data(), res)); 
@@ -1530,4 +1615,32 @@ LOCALLLM_API bool localllm_check_memory_available(size_t required_bytes, const c
         set_error(error_message, std::string("Error checking memory: ") + e.what());
         return true; // If we can't check, assume it's okay
     }
-} 
+}
+
+LOCALLLM_API void localllm_set_verbosity(int verbosity) {
+    set_log_verbosity(verbosity);
+}
+
+LOCALLLM_API localllm_error_code localllm_model_metadata(localllm_model_handle model, char*** keys_out, char*** values_out, int32_t* n_out, const char** error_message) {
+    if (!model) {
+        set_error(error_message, "Model handle is null.");
+        return LOCALLLM_ERROR;
+    }
+    int32_t count = llama_model_meta_count(model);
+    *n_out = count;
+    if (count <= 0) {
+        *keys_out = nullptr;
+        *values_out = nullptr;
+        return LOCALLLM_SUCCESS;
+    }
+    *keys_out   = new char*[count];
+    *values_out = new char*[count];
+    char buf[4096];
+    for (int32_t i = 0; i < count; ++i) {
+        int32_t klen = llama_model_meta_key_by_index(model, i, buf, sizeof(buf));
+        (*keys_out)[i]   = string_to_c_str(klen >= 0 ? std::string(buf) : std::string());
+        int32_t vlen = llama_model_meta_val_str_by_index(model, i, buf, sizeof(buf));
+        (*values_out)[i] = string_to_c_str(vlen >= 0 ? std::string(buf) : std::string());
+    }
+    return LOCALLLM_SUCCESS;
+}

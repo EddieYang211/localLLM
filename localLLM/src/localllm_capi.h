@@ -74,7 +74,13 @@ LOCALLLM_API localllm_error_code localllm_resolve_model(const char* model_url, c
 LOCALLLM_API size_t localllm_estimate_model_memory(const char* model_path, const char** error_message);
 LOCALLLM_API bool localllm_check_memory_available(size_t required_bytes, const char** error_message);
 
+// Verbosity control (0=errors only, 1=warn+error, 2=info+, 3=all, <0=silent)
+LOCALLLM_API void localllm_set_verbosity(int verbosity);
+
+// GGUF metadata: returns all key-value pairs; free with localllm_free_string_array
+LOCALLLM_API localllm_error_code localllm_model_metadata(localllm_model_handle model, char*** keys_out, char*** values_out, int32_t* n_out, const char** error_message);
+
 #ifdef __cplusplus
 }
 #endif
-#endif 
+#endif

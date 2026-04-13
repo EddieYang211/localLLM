@@ -312,6 +312,14 @@ cat("Accuracy:", round(accuracy * 100, 1), "%\n")
 3. **Enable `progress = TRUE`** for large batches
 4. **Use `clean = TRUE`** to automatically strip control tokens
 5. **Set consistent `seed`** for reproducibility across batches
+6. **Set `verbosity = 0`** in scripts and automated pipelines to prevent backend log lines from appearing in output files or `R CMD check` output. `generate_parallel()` already defaults to `verbosity = 0`; suppress loading output by passing `verbosity = 0` to `model_load()` and `context_create()` as well:
+
+```{r}
+# Fully silent batch pipeline
+model   <- model_load("model.gguf",          verbosity = 0)
+ctx     <- context_create(model, n_seq_max = 8, verbosity = 0)
+results <- generate_parallel(ctx, prompts, max_tokens = 50, progress = FALSE)
+```
 
 ## Next Steps
 

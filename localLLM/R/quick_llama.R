@@ -48,7 +48,6 @@
 #' @param system_prompt System prompt to add to conversation (default: "You are a helpful assistant.")
 #' @param auto_format Whether to automatically apply chat template formatting (default: TRUE)
 #' @param chat_template Custom chat template to use (default: NULL uses model's built-in template)
-#' @param stream Whether to stream output (default: auto-detect based on interactive())
 #' @param seed Random seed for reproducibility (default: 1234)
 #' @param progress Show a console progress bar when running parallel generation.
 #'   Default: \code{interactive()}. Has no effect for single-prompt runs.
@@ -106,7 +105,6 @@ quick_llama <- function(prompt,
                         system_prompt = "You are a helpful assistant.",
                         auto_format = TRUE,
                         chat_template = NULL,
-                        stream = FALSE,
                         seed = 1234L,
                         progress = interactive(),
                         clean = FALSE,
@@ -125,9 +123,6 @@ quick_llama <- function(prompt,
   if (any(nchar(prompt) == 0)) {
     stop("Prompt cannot be empty", call. = FALSE)
   }
-  
-  # Ensure stream is logical
-  stream <- as.logical(stream)
   
   # Auto-detect n_threads if not specified
   if (is.null(n_threads)) {
@@ -184,7 +179,7 @@ quick_llama <- function(prompt,
     }
     formatted_payload <- formatted_prompt
     .generate_single(formatted_prompt, max_tokens, top_k, top_p, temperature,
-                     repeat_last_n, penalty_repeat, seed, stream)
+                     repeat_last_n, penalty_repeat, seed, verbosity = verbosity)
   } else {
     # Multiple prompts - apply formatting to each prompt individually
     if (auto_format) {
@@ -205,7 +200,7 @@ quick_llama <- function(prompt,
     }
     formatted_payload <- formatted_prompts
     .generate_multiple(formatted_prompts, max_tokens, top_k, top_p, temperature,
-                       repeat_last_n, penalty_repeat, seed, stream, progress)
+                       repeat_last_n, penalty_repeat, seed, progress, verbosity = verbosity)
   }
   
   # Clean up special tokens from output when requested
@@ -236,8 +231,7 @@ quick_llama <- function(prompt,
     penalty_repeat = penalty_repeat,
     seed = seed,
     auto_format = isTRUE(auto_format),
-    clean = isTRUE(clean),
-    stream = isTRUE(stream)
+    clean = isTRUE(clean)
   ))
   
   if (isTRUE(hash)) {
@@ -264,8 +258,7 @@ quick_llama <- function(prompt,
         auto_format = isTRUE(auto_format),
         system_prompt = system_prompt,
         chat_template = chat_template %||% NA_character_,
-        clean = isTRUE(clean),
-        stream = isTRUE(stream)
+        clean = isTRUE(clean)
       ),
       raw_prompt = prompt,
       formatted_prompt = formatted_payload
@@ -461,13 +454,13 @@ quick_llama_reset <- function() {
 #' @param temperature Temperature
 #' @param repeat_penalty Repetition penalty
 #' @param seed Random seed
-#' @param stream Whether to stream
+#' @param verbosity Verbosity level
 #' @param ... Additional parameters
 #' @return Generated text string
 #' @noRd
-.generate_single <- function(prompt, max_tokens, top_k, top_p, temperature, 
-                             repeat_last_n, penalty_repeat, seed, stream, hash = FALSE, ...) {
-  
+.generate_single <- function(prompt, max_tokens, top_k, top_p, temperature,
+                             repeat_last_n, penalty_repeat, seed, verbosity = 0L, hash = FALSE, ...) {
+
   context <- .quick_llama_env$context
   # Generate text (auto-tokenization is now handled by generate())
   .localllm_message("Generating...")
@@ -479,6 +472,7 @@ quick_llama_reset <- function() {
                      repeat_last_n = repeat_last_n,
                      penalty_repeat = penalty_repeat,
                      seed = seed,
+                     verbosity = verbosity,
                      hash = hash)
   result
 }
@@ -492,19 +486,18 @@ quick_llama_reset <- function() {
 #' @param repeat_last_n Number of recent tokens for repetition penalty
 #' @param penalty_repeat Repetition penalty strength
 #' @param seed Random seed
-#' @param stream Whether to stream
+#' @param verbosity Verbosity level
 #' @param ... Additional parameters
 #' @return Named list of generated texts
 #' @noRd
-.generate_multiple <- function(prompts, max_tokens, top_k, top_p, temperature, 
-                               repeat_last_n, penalty_repeat, seed, stream, progress,
-                               hash = FALSE, ...) {
-  
+.generate_multiple <- function(prompts, max_tokens, top_k, top_p, temperature,
+                               repeat_last_n, penalty_repeat, seed, progress,
+                               verbosity = 0L, hash = FALSE, ...) {
+
   context <- .quick_llama_env$context
-  
+
   .localllm_message("Generating ", length(prompts), " responses...")
-  
-  # Use parallel generation for better performance (streaming flag available for future use)
+
   results <- generate_parallel(context, prompts,
                                max_tokens = max_tokens,
                                top_k = top_k,
@@ -514,6 +507,7 @@ quick_llama_reset <- function() {
                                penalty_repeat = penalty_repeat,
                                seed = seed,
                                progress = progress,
+                               verbosity = verbosity,
                                hash = hash)
   
   # Return as named list
