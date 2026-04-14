@@ -191,6 +191,33 @@ system.time({
 
 **Result**: ~35% faster with parallel processing.
 
+### Benchmark: Larger Models
+
+For larger models the speedup is more pronounced because the KV-cache and attention computation per token are heavier, making batching more efficient relative to sequential overhead.
+
+Tested on Apple M3 Pro (18 GB unified memory), 100 AG News classification prompts,
+`ctx_size = 512`, `max_tokens = 50`, `n_seq_max = 10`:
+
+| Model | Sequential | Parallel (10×) | Speedup |
+|---|---|---|---|
+| Llama-3.2-3B-Instruct-Q5_K_M | ~48 sec | ~31 sec | ~1.5x |
+| DeepSeek-R1-Distill-Qwen-14B-Q5_K_M | 617.2 sec | 242.0 sec | **2.55x** |
+
+The 14B model achieves a larger relative speedup (2.55×) because larger models are more
+memory-bandwidth-bound — batching amortises that cost across sequences more effectively.
+
+> **Note on reasoning models**: DeepSeek-R1 and similar reasoning models (QwQ, Gemma 4)
+> output a thinking block before the final answer (e.g. `<think>...</think>answer`).
+> For classification tasks, strip the thinking section before evaluating predictions:
+>
+> ```r
+> clean_pred <- function(x) {
+>   # Remove thinking block, keep only text after closing tag
+>   x <- gsub("<think>.*?</think>", "", x, perl = TRUE)
+>   trimws(gsub("\n.*", "", trimws(x)))
+> }
+> ```
+
 ## Using quick_llama() for Batches
 
 The simplest approach for parallel processing is passing a vector to `quick_llama()`:

@@ -9,6 +9,7 @@
 #include "ggml.h"
 #include "common/common.h"
 #include "common/sampling.h"
+#include "common/chat.h"
 #include <string>
 #include <vector>
 #include <memory>
@@ -394,53 +395,54 @@ LOCALLLM_API localllm_error_code localllm_apply_chat_template(localllm_model_han
     int32_t res = llama_chat_apply_template(effective_tmpl, messages_vec.data(), n_messages, add_ass, buffer.data(), buffer.size()); 
     
     if (res < 0) {
-        // Fallback: architecture-based template for models not recognized by llama_chat_apply_template
-        char arch_buf[64] = {0};
-        llama_model_meta_val_str(model, "general.architecture", arch_buf, sizeof(arch_buf));
+        // Fallback: C API didn't recognise this template (e.g. Gemma 4).
+        // Use common/chat.cpp which executes the Jinja2 template embedded in the GGUF
+        // and works for any model regardless of the C-API whitelist.
+        try {
+            auto tmpls = common_chat_templates_init(model, "");
 
-        if (strcmp(arch_buf, "gemma4") == 0) {
-            // Gemma 4 uses <|turn>role\ncontent<turn|>\n format (different from Gemma 2/3)
-            std::string formatted;
-            size_t msg_start = 0;
-
-            // System message gets its own <|turn>system block
-            if (n_messages > 0 && messages_in[0].role && strcmp(messages_in[0].role, "system") == 0) {
-                formatted += "<|turn>system\n";
-                formatted += (messages_in[0].content ? messages_in[0].content : "");
-                formatted += "<turn|>\n";
-                msg_start = 1;
+            std::vector<common_chat_msg> msgs;
+            msgs.reserve(n_messages);
+            for (size_t i = 0; i < n_messages; ++i) {
+                common_chat_msg msg;
+                msg.role    = messages_in[i].role    ? messages_in[i].role    : "";
+                msg.content = messages_in[i].content ? messages_in[i].content : "";
+                msgs.push_back(std::move(msg));
             }
 
-            for (size_t i = msg_start; i < n_messages; ++i) {
-                std::string role = messages_in[i].role ? messages_in[i].role : "user";
-                std::string content = messages_in[i].content ? messages_in[i].content : "";
-                if (role == "assistant") role = "model";
-                formatted += "<|turn>" + role + "\n" + content + "<turn|>\n";
+            common_chat_templates_inputs inputs;
+            inputs.messages              = std::move(msgs);
+            inputs.add_generation_prompt = add_ass;
+            // enable_thinking defaults to true — full output (thinking + answer) returned as-is
+
+            auto params = common_chat_templates_apply(tmpls.get(), inputs);
+            std::string prompt = params.prompt;
+
+            // If the Jinja2 template pre-closes the thinking block in the prompt
+            // (e.g. Gemma 4 appends "<channel|>" immediately after opening it),
+            // strip the closing tag so the model generates its own thinking content.
+            if (!params.thinking_end_tag.empty()) {
+                const std::string & end_tag = params.thinking_end_tag;
+                // Strip trailing whitespace/newlines before checking
+                size_t trim = prompt.find_last_not_of(" \t\n\r");
+                std::string stripped = (trim != std::string::npos) ? prompt.substr(0, trim + 1) : prompt;
+                if (stripped.size() >= end_tag.size() &&
+                    stripped.compare(stripped.size() - end_tag.size(), end_tag.size(), end_tag) == 0) {
+                    stripped.erase(stripped.size() - end_tag.size());
+                    // Remove any trailing whitespace left after tag removal
+                    while (!stripped.empty() && (stripped.back() == ' ' || stripped.back() == '\t')) {
+                        stripped.pop_back();
+                    }
+                    prompt = stripped + "\n";
+                }
             }
 
-            if (add_ass) {
-                // <|channel>thought\n<channel|> suppresses thinking output by default
-                formatted += "<|turn>model\n<|channel>thought\n<channel|>";
-            }
-
-            *result_out = string_to_c_str(formatted);
+            *result_out = string_to_c_str(prompt);
             return LOCALLLM_SUCCESS;
+        } catch (const std::exception & e) {
+            set_error(error_message, (std::string("Chat template fallback failed: ") + e.what()).c_str());
+            return LOCALLLM_ERROR;
         }
-
-        // Unknown template — report error
-        std::string error_msg = "Failed to apply chat template. Error code: " + std::to_string(res);
-        if (res == -1) {
-            error_msg += " (template not found or invalid)";
-        } else if (res == -2) {
-            error_msg += " (buffer too small)";
-        }
-        if (tmpl) {
-            error_msg += ". Custom template used: " + std::string(tmpl, 0, 100) + "...";
-        } else {
-            error_msg += ". Using model's built-in template.";
-        }
-        set_error(error_message, error_msg);
-        return LOCALLLM_ERROR;
     } 
     
     *result_out = string_to_c_str(std::string(buffer.data(), res)); 
@@ -566,6 +568,24 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
         // Only add non-EOG tokens to output
         const std::string token_str = common_token_to_piece(ctx, new_token);
         generated_text += token_str;
+
+        // Text-level stop strings: strip and halt when these appear at the end.
+        // Needed for models (e.g. Gemma 4) whose turn-closing tokens are not
+        // single special tokens and therefore not caught by llama_vocab_is_eog.
+        static const std::vector<std::string> text_stop_strings = {
+            "<turn|>", "<end_of_turn>"
+        };
+        bool text_stopped = false;
+        for (const auto & stop : text_stop_strings) {
+            if (generated_text.size() >= stop.size() &&
+                generated_text.compare(generated_text.size() - stop.size(),
+                                       stop.size(), stop) == 0) {
+                generated_text.erase(generated_text.size() - stop.size());
+                text_stopped = true;
+                break;
+            }
+        }
+        if (text_stopped) break;
 
         llama_batch next_batch = llama_batch_init(1, 0, 1);
         common_batch_add(next_batch, new_token, n_past, {0}, true);
