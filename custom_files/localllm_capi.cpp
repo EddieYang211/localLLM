@@ -570,19 +570,26 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
         generated_text += token_str;
 
         // Text-level stop strings: strip and halt when these appear at the end.
-        // Needed for models (e.g. Gemma 4) whose turn-closing tokens are not
-        // single special tokens and therefore not caught by llama_vocab_is_eog.
+        // Needed for models (e.g. Gemma 4 / OLMo) whose turn-closing token is
+        // NOT a single special token but is spelled out as multiple pieces.
+        // Use windowed find instead of exact-suffix match to handle the case
+        // where the last piece adds the stop string PLUS trailing '\n' etc.
         static const std::vector<std::string> text_stop_strings = {
-            "<turn|>", "<end_of_turn>"
+            "<turn|>", "<end_of_turn>", "<|eot_id|>", "<|im_end|>",
+            "<|start_header_id|>"
         };
         bool text_stopped = false;
         for (const auto & stop : text_stop_strings) {
-            if (generated_text.size() >= stop.size() &&
-                generated_text.compare(generated_text.size() - stop.size(),
-                                       stop.size(), stop) == 0) {
-                generated_text.erase(generated_text.size() - stop.size());
-                text_stopped = true;
-                break;
+            if (generated_text.size() >= stop.size()) {
+                size_t window = stop.size() + 4;
+                size_t search_start = generated_text.size() > window
+                                      ? generated_text.size() - window : 0;
+                size_t pos = generated_text.find(stop, search_start);
+                if (pos != std::string::npos) {
+                    generated_text.erase(pos);
+                    text_stopped = true;
+                    break;
+                }
             }
         }
         if (text_stopped) break;
@@ -723,47 +730,6 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
         bool priming = false;
     };
 
-    auto clean_response_text = [](std::string text) {
-        const std::vector<std::string> stop_markers = {
-            "<|im_start|>", "<|im_end|>", "<|eot_id|>",
-            "<|start_header_id|>", "<|end_header_id|>",
-            "<end_of_turn>", "<start_of_turn>",
-            "</s>", "<s>", "<|endoftext|>", "<|end|>", "<|start|>",
-            "<eos>", "<bos>",
-            "\n<|im_end|>", "\n<end_of_turn>", "\n</s>"
-        };
-
-        bool found_marker = true;
-        int cleanup_rounds = 0;
-        while (found_marker && cleanup_rounds < 5) {
-            found_marker = false;
-            cleanup_rounds++;
-            for (const auto& marker : stop_markers) {
-                size_t pos = 0;
-                while ((pos = text.find(marker, pos)) != std::string::npos) {
-                    text.erase(pos, marker.length());
-                    found_marker = true;
-                }
-            }
-        }
-
-        while (!text.empty() && (text.front() == '?' || text.front() < 32 || text.front() > 126)) {
-            text = text.substr(1);
-        }
-        while (!text.empty() && isspace(text.back())) {
-            text.pop_back();
-        }
-        while (!text.empty() && isspace(text.front())) {
-            text = text.substr(1);
-        }
-
-        size_t pos = text.find("\n\nUser:");
-        if (pos != std::string::npos) {
-            text = text.substr(0, pos);
-        }
-        return text;
-    };
-
     auto release_slot = [](Slot& slot) {
         if (slot.smpl) {
             common_sampler_free(slot.smpl);
@@ -876,7 +842,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
         }
 
         if (success) {
-            final_responses[slot.global_index] = clean_response_text(slot.response);
+            final_responses[slot.global_index] = slot.response;
             n_total_gen += slot.n_decoded;
         } else {
             final_responses[slot.global_index] = "[ERROR] " + (slot.error_msg.empty() ? std::string("Unknown error") : slot.error_msg);
@@ -1195,6 +1161,34 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
                                 (slot.response.find("\n\nUser:") != std::string::npos ||
                                  slot.response.find("\n\nHuman:") != std::string::npos)) {
                                 should_stop = true;
+                            }
+
+                            // Text-level stop strings for models like Gemma 4 / OLMo whose
+                            // turn-closing token is NOT a single special token but is spelled
+                            // out as multiple pieces (e.g. '<','|','im','_end','|','>\n').
+                            // Use windowed find instead of exact-suffix match so that a stop
+                            // string followed by a trailing '\n' (or other short suffix merged
+                            // into the same token) is still caught.
+                            if (!should_stop) {
+                                static const std::vector<std::string> text_stop_strings = {
+                                    "<turn|>", "<end_of_turn>", "<|eot_id|>", "<|im_end|>",
+                                    "<|start_header_id|>"
+                                };
+                                for (const auto& stop : text_stop_strings) {
+                                    if (slot.response.size() >= stop.size()) {
+                                        // Search within the last (stop.size() + 4) bytes so we
+                                        // catch stop strings immediately followed by '\n' etc.
+                                        size_t window = stop.size() + 4;
+                                        size_t search_start = slot.response.size() > window
+                                                              ? slot.response.size() - window : 0;
+                                        size_t pos = slot.response.find(stop, search_start);
+                                        if (pos != std::string::npos) {
+                                            slot.response.erase(pos);
+                                            should_stop = true;
+                                            break;
+                                        }
+                                    }
+                                }
                             }
                         }
 

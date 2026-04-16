@@ -6,7 +6,12 @@
 
 ## Bug Fixes
 
-- **Fixed `apply_chat_template()` failing for Gemma 4 models** — Gemma 4 uses a new `<|turn>` / `<turn|>` chat format (different from Gemma 2/3's `<start_of_turn>`). llama.cpp's template detection does not recognize this format and returns -1. Added an architecture-based fallback in `localllm_capi.cpp`: when `llama_chat_apply_template()` fails and the model architecture is `"gemma4"`, the correct format is applied directly. Thinking output is suppressed by default via `<|channel>thought\n<channel|>` in the generation prompt. Tool calls and multimodal content are not handled by the fallback.
+- **Fixed `apply_chat_template()` failing for Gemma 4 models** — Gemma 4 uses a `<|turn>` / `<turn|>` chat format not recognized by `llama_chat_apply_template()` (returns -1). The fallback now calls `common_chat_templates_apply()` from `common/chat.cpp`, which executes the Jinja2 template embedded in the model's GGUF directly. This works for any model with a valid Jinja2 template regardless of the C API whitelist. `enable_thinking` defaults to `true`, so Gemma 4 generates thinking content naturally without a pre-closed thought block. Tool calls and multimodal content are not handled.
+
+- **Fixed stop token leaking in `generate()` and `generate_parallel()` for ChatML models (OLMo, Llama 3)** — Two separate issues fixed:
+  - *Windowed find*: OLMo tokenizes `<|im_end|>` as 6 separate pieces, with the last piece being `>\n` (merging `>` and newline). The previous exact-suffix check failed because the response ended with `<|im_end|>\n` instead of exactly `<|im_end|>`. Changed to a windowed `find()` that searches within the last `stop.size() + 4` bytes and truncates at the match position. Applied to both `generate()` and `generate_parallel()`.
+  - *`<|start_header_id|>` loop*: Llama 3.2 3B sometimes omits `<|eot_id|>` and jumps directly to `<|start_header_id|>` to begin a new turn, causing infinite repetition. Added `<|start_header_id|>` to `text_stop_strings` in both functions.
+  - `generate()`'s stop list also expanded from `{"<turn|>", "<end_of_turn>"}` to `{"<turn|>", "<end_of_turn>", "<|eot_id|>", "<|im_end|>", "<|start_header_id|>"}` to match `generate_parallel()`.
 
 ## Backend
 

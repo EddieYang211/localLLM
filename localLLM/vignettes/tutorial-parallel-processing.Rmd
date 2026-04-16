@@ -21,7 +21,7 @@ When processing large datasets, parallel generation can significantly reduce exe
 
 Sequential processing with a for-loop processes one prompt at a time. Parallel processing batches multiple prompts together, sharing computation and reducing overhead.
 
-In benchmarks, `generate_parallel()` typically completes in **~65% of the time** compared to sequential `generate()` calls.
+In benchmarks, `generate_parallel()` typically completes in **60–70% of the time** compared to sequential `generate()` calls (1.3×–1.7× speedup depending on model size).
 
 ## Using generate_parallel()
 
@@ -165,7 +165,7 @@ system.time({
 
 ```
 #>    user  system elapsed
-#>  45.32    2.15   48.23
+#>   0.62    0.08   41.55
 ```
 
 ### Parallel
@@ -186,25 +186,27 @@ system.time({
 
 ```
 #>    user  system elapsed
-#>  28.45    1.82   31.12
+#>   0.38    0.04   24.08
 ```
 
-**Result**: ~35% faster with parallel processing.
+**Result**: ~42% faster with parallel processing (1.73×).
 
-### Benchmark: Larger Models
-
-For larger models the speedup is more pronounced because the KV-cache and attention computation per token are heavier, making batching more efficient relative to sequential overhead.
+### Benchmark: Multiple Models
 
 Tested on Apple M3 Pro (18 GB unified memory), 100 AG News classification prompts,
 `ctx_size = 512`, `max_tokens = 50`, `n_seq_max = 10`:
 
 | Model | Sequential | Parallel (10×) | Speedup |
 |---|---|---|---|
-| Llama-3.2-3B-Instruct-Q5_K_M | ~48 sec | ~31 sec | ~1.5x |
-| DeepSeek-R1-Distill-Qwen-14B-Q5_K_M | 617.2 sec | 242.0 sec | **2.55x** |
+| Llama-3.2-3B-Instruct-Q5_K_M | 41.6 sec | 24.1 sec | **1.73×** |
+| Gemma-3-4B-it-QAT-Q5_K_M | 41.3 sec | 30.0 sec | 1.38× |
+| OLMo-3-7B-Instruct-Q5_K_M | 61.5 sec | 43.3 sec | 1.42× |
+| Gemma-4-26B-A4B-it-IQ2_XXS | 69.2 sec | 52.9 sec | 1.31× |
 
-The 14B model achieves a larger relative speedup (2.55×) because larger models are more
-memory-bandwidth-bound — batching amortises that cost across sequences more effectively.
+On Apple Silicon (M3 Pro), smaller models tend to show **higher parallel speedup** than
+larger ones. The GPU is underutilised during single-sequence inference for small models,
+so batching provides more headroom. Larger models approach GPU saturation even at
+`n_seq_max = 1`, leaving less room for parallel gains.
 
 > **Note on reasoning models**: DeepSeek-R1 and similar reasoning models (QwQ, Gemma 4)
 > output a thinking block before the final answer (e.g. `<think>...</think>answer`).
