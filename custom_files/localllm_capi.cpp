@@ -576,7 +576,7 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
         // where the last piece adds the stop string PLUS trailing '\n' etc.
         static const std::vector<std::string> text_stop_strings = {
             "<turn|>", "<end_of_turn>", "<|eot_id|>", "<|im_end|>",
-            "<|start_header_id|>"
+            "<|start_header_id|>", "\n\nUser:", "\n\nHuman:"
         };
         bool text_stopped = false;
         for (const auto & stop : text_stop_strings) {
@@ -999,6 +999,8 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
         }
     };
 
+    llama_batch gen_batch = llama_batch_init(seq_capacity, 0, 1);
+
     try {
         ensure_slots_filled();
 
@@ -1007,7 +1009,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
 
             std::vector<int> batch_slots;
             batch_slots.reserve(active_clients);
-            llama_batch gen_batch = llama_batch_init(n_ctx, 0, active_clients);
+            gen_batch.n_tokens = 0;
 
             for (int i = 0; i < seq_capacity; ++i) {
                 Slot& slot = slots[i];
@@ -1042,7 +1044,6 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             }
 
             if (gen_batch.n_tokens == 0) {
-                llama_batch_free(gen_batch);
                 break;
             }
 
@@ -1156,13 +1157,6 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
                             const std::string token_str = common_token_to_piece(ctx, new_token);
                             slot.response += token_str;
 
-                            // Check for text-based stop patterns
-                            if (slot.n_decoded > 5 &&
-                                (slot.response.find("\n\nUser:") != std::string::npos ||
-                                 slot.response.find("\n\nHuman:") != std::string::npos)) {
-                                should_stop = true;
-                            }
-
                             // Text-level stop strings for models like Gemma 4 / OLMo whose
                             // turn-closing token is NOT a single special token but is spelled
                             // out as multiple pieces (e.g. '<','|','im','_end','|','>\n').
@@ -1172,7 +1166,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
                             if (!should_stop) {
                                 static const std::vector<std::string> text_stop_strings = {
                                     "<turn|>", "<end_of_turn>", "<|eot_id|>", "<|im_end|>",
-                                    "<|start_header_id|>"
+                                    "<|start_header_id|>", "\n\nUser:", "\n\nHuman:"
                                 };
                                 for (const auto& stop : text_stop_strings) {
                                     if (slot.response.size() >= stop.size()) {
@@ -1212,19 +1206,21 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
                 start += n_tokens;
             }
 
-            llama_batch_free(gen_batch);
-
-            if (!slots_pending_reassign.empty()) {
-                for (int slot_idx : slots_pending_reassign) {
-                    assign_next_prompt(slot_idx);
-                }
-                slots_pending_reassign.clear();
-            }
-
             if (!decode_success) {
                 throw std::runtime_error("Fatal decode error during generation batch");
             }
+
+            if (!slots_pending_reassign.empty()) {
+                for (int slot_idx : slots_pending_reassign) {
+                    if (!slots[slot_idx].active) {
+                        assign_next_prompt(slot_idx);
+                    }
+                }
+                slots_pending_reassign.clear();
+            }
         }
+
+        llama_batch_free(gen_batch);
 
         const auto t_end = ggml_time_us();
         const double total_time = (t_end - t_start) / 1e6;
@@ -1267,6 +1263,10 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             fprintf(stderr, "\r [==============================] %d/%d (100%%)\n", total_prompts, total_prompts);
             fflush(stderr);
         }
+        for (int i = 0; i < seq_capacity; ++i) {
+            release_slot(slots[i]);
+        }
+        llama_batch_free(gen_batch);
         llama_memory_clear(mem, true);
         set_error(error_message, std::string("Parallel generation failed: ") + e.what());
         return LOCALLLM_ERROR;

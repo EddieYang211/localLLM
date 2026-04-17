@@ -235,6 +235,50 @@ When `llama_chat_apply_template()` returns -1, check `general.architecture` via 
 
 ---
 
+## EOG Detection Design — Current Implementation (2026-04-16)
+
+### Three-layer architecture
+
+Generation stops via three independent layers, checked in order every token:
+
+**Layer 1 — Single-token EOG (`llama_vocab_is_eog()`)**
+- Fires when sampled token is registered as an EOG token in the model's GGUF vocab
+- Zero false-positive risk; covers well-behaved models (Gemma, Qwen, Mistral, etc.)
+
+**Layer 2 — Multi-token sequence detection (hardcoded token IDs)**
+- Maintains a 7-token sliding window per sequence / slot
+- Detects: `<|eot_id|>` = `{27,91,68,354,851,91,29}`, `<|end_header_id|>` = `{27,91,408,8932,851,91,29}`
+- Designed for models where these tokens are NOT marked as EOG and get spelled out as multiple ordinary tokens
+- **Redundancy**: both strings are already in Layer 3's `text_stop_strings`, so Layer 2 fires first but Layer 3 would have caught the same case. Layer 2 is historical code added before Layer 3 existed; kept because it's harmless and removal needs regression testing on LLaMA 3.
+- **Cross-model risk**: IDs are LLaMA 3–specific. For other tokenizers these IDs mean different tokens; a coincidental 7-match would cause wrong truncation (probability extremely low).
+
+**Layer 3 — Text-level stop strings (`text_stop_strings`)**
+- After each token is appended to the response, searches within a window of `stop.size() + 4` bytes from the tail (windowed `find`, not full scan)
+- On match: erases the response from the match position onward, then breaks
+
+Current list (both `generate()` and `generate_parallel()`):
+```
+"<turn|>", "<end_of_turn>", "<|eot_id|>", "<|im_end|>",
+"<|start_header_id|>", "\n\nUser:", "\n\nHuman:"
+```
+
+`\n\nUser:` and `\n\nHuman:` were added 2026-04-16 to replace an older full-response scan in `generate_parallel()` that (a) didn't erase the matched text, (b) was O(n²), and (c) was absent from `generate()`. Moving them into `text_stop_strings` fixes all three issues and keeps both functions in sync.
+
+### False truncation risk
+
+Layer 3's windowed search only fires when a stop string appears at the **current tail** of the response — it cannot trigger on earlier content. Real false-positive scenarios are narrow:
+
+- User asks model to explain LLaMA 3/ChatML chat format → model generates `<|eot_id|>` or `<|im_end|>` literally → truncated
+- User asks model to produce a dialogue example → model generates `\n\nUser:` as part of the example → truncated
+
+These are meta-discussion cases. Ordinary Q&A, coding, and writing tasks are unaffected.
+
+### Long-term fix
+
+Expose a user-facing `stop` parameter on `generate()` and `generate_parallel()` (see "Feature: `stop` Parameter" below). This lets callers override stop behavior per-call, reducing reliance on hardcoded lists. The hardcoded lists become a sensible default rather than the only option.
+
+---
+
 ## Bug Fix: Robust Multi-Token EOG Detection (Priority: LOW — see feature above)
 
 **Problem**: `generate()` and `generate_parallel()` have incomplete EOG (end-of-generation) detection for Llama 3.x models.
@@ -274,3 +318,77 @@ When `llama_chat_apply_template()` returns -1, check `general.architecture` via 
 **Note**: This should be treated as a last-resort guard, not a replacement for the R-layer check. The R layer handles interactive user prompts; the C layer should only hard-stop to prevent a crash.
 
 **Files to change**: `custom_files/localllm_capi.cpp` — `localllm_model_load()` or equivalent, before the call to `llama_model_load_from_file()`
+
+---
+
+## Bug Fix: `next_batch` Per-Token Allocation in `generate()` (Priority: LOW — performance)
+
+**Found**: 2026-04-16
+
+**Problem**: In the `generate()` generation loop, a new `llama_batch` is allocated and freed for every single generated token:
+
+```cpp
+for (int i = 0; i < max_tokens; ++i) {
+    ...
+    llama_batch next_batch = llama_batch_init(1, 0, 1);   // ← per-token alloc
+    common_batch_add(next_batch, new_token, n_past, {0}, true);
+    llama_decode(ctx, next_batch);
+    llama_batch_free(next_batch);                          // ← per-token free
+}
+```
+
+This is the same pattern as the gen_batch issue fixed in `generate_parallel()` (Problem 2, 2026-04-16). For size-1 batches the overhead is small (~microseconds per call), but it's unnecessary and inconsistent with the parallel implementation.
+
+**Fix**: Allocate `llama_batch next_batch = llama_batch_init(1, 0, 1)` once before the loop, reset `next_batch.n_tokens = 0` at the start of each iteration, free once after the loop. Mirror the gen_batch pattern from `generate_parallel()`.
+
+**Files to change**: `backend/llama.cpp/localllm_capi.cpp` — `localllm_generate()`, lines ~597–606
+
+---
+
+## Bug Fix: `ensure_slots_filled` vs `slots_pending_reassign` Double-Assignment (Priority: MEDIUM) ✅ FIXED 2026-04-16
+
+**Found**: 2026-04-16
+
+**Problem**: In `generate_parallel()`, two code paths can assign the same slot simultaneously, causing a prompt to be silently skipped.
+
+**Trigger sequence**:
+1. A slot's first sampled token is EOS (e.g. empty prompt, or unusual model behavior)
+2. `assign_next_prompt` calls `finalize_slot` → `slot.active = false`, slot added to `slots_pending_reassign`
+3. The while-loop's next iteration calls `ensure_slots_filled` (line 1008), which sees `!slot.active` and assigns a NEW prompt to this slot (sampler initialized, `slot.active = true`, `active_clients++`)
+4. The same loop iteration later processes `slots_pending_reassign`: `assign_next_prompt` is called again for the same slot, and begins with `release_slot(slot)` — which frees the just-initialized sampler and resets `slot.active = false`
+5. The prompt assigned in step 3 is now abandoned: its response stays as an empty string in `final_responses`
+
+**Root cause**: `slots_pending_reassign` is consumed at the END of each loop iteration, but `ensure_slots_filled` at the START of the same iteration may have already handled the slot.
+
+**Fix** — add a single guard in the `slots_pending_reassign` loop (lines ~1213–1218):
+
+```cpp
+for (int slot_idx : slots_pending_reassign) {
+    if (!slots[slot_idx].active) {   // skip if ensure_slots_filled already reassigned
+        assign_next_prompt(slot_idx);
+    }
+}
+```
+
+**Severity**: Low in practice — requires the first sampled token of a prompt to be EOS, which is rare with well-formed chat-templated prompts. But causes a silent result gap (empty string instead of `[ERROR]`) when it does occur.
+
+**Files to change**: `backend/llama.cpp/localllm_capi.cpp` — `localllm_generate_parallel()`, lines ~1213–1218
+
+---
+
+## Code Quality: Dead Code in `generate_parallel()` (Priority: LOW)
+
+**Found**: 2026-04-16
+
+Two unreachable code paths in `generate_parallel()`:
+
+**1. `need_prompt_logit` / `priming` mechanism** (lines ~906, 1029–1034, 1090–1094):
+`need_prompt_logit` is set to `slot.suffix_tokens.empty() && slot.n_prompt > 0`. However, `assign_next_prompt` always ensures `suffix_tokens` is non-empty when `n_prompt > 0`: when the entire prompt is the shared prefix, it adjusts `prefix_len` down by 1 and adds the last token to `suffix_tokens`. So `need_prompt_logit` is permanently `false`, and the priming code path never executes. Safe to remove.
+
+**2. Dead `pos` initialization at line ~1027**:
+```cpp
+int pos = slot.n_past + slot.n_decoded;  // never used
+```
+Both branches of the following `if/else` (lines 1034 and 1038) overwrite `pos` before it is used. The initial calculation is dead code. Safe to remove.
+
+**No functional impact** — these are pure cleanup items.
