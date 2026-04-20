@@ -143,6 +143,11 @@ print(cached)
 #> 2   gemma-3-4b-it-qat-Q5_K_M.gguf   2829698176 2025-12-14 19:21:11
 ```
 
+```{r}
+# Delete a cached model by name
+file.remove(cached$path[cached$name == "Llama-3.2-3B-Instruct-Q5_K_M.gguf"])
+```
+
 ## Customizing Generation
 
 Control the output with various parameters:

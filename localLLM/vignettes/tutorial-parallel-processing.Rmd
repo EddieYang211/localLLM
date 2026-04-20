@@ -69,14 +69,14 @@ print(results)
 
 ### Progress Tracking
 
-For large batches, enable progress reporting:
+Progress reporting is enabled by default in interactive sessions (`progress = interactive()`). To force it in non-interactive scripts, set `progress = TRUE` explicitly:
 
 ```{r}
 results <- generate_parallel(
   ctx,
   formatted_prompts,
   max_tokens = 50,
-  progress = TRUE
+  progress = TRUE  # force progress bar even in non-interactive mode
 )
 ```
 
@@ -338,7 +338,7 @@ cat("Accuracy:", round(accuracy * 100, 1), "%\n")
 
 1. **Set `n_seq_max`** when creating context for parallel use
 2. **Scale `n_ctx`** with `n_seq_max` to give each sequence enough space
-3. **Enable `progress = TRUE`** for large batches
+3. **Progress is shown automatically** in interactive sessions; set `progress = TRUE` to force it in scripts
 4. **Use `clean = TRUE`** to automatically strip control tokens
 5. **Set consistent `seed`** for reproducibility across batches
 6. **Set `verbosity = 0`** in scripts and automated pipelines to prevent backend log lines from appearing in output files or `R CMD check` output. `generate_parallel()` already defaults to `verbosity = 0`; suppress loading output by passing `verbosity = 0` to `model_load()` and `context_create()` as well:
