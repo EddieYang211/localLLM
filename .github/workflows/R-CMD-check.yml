@@ -264,14 +264,13 @@ jobs:
           brew install cmake
 
       - name: Install R dependencies
-        run: |
-          pak::pak(c("testthat", "Rcpp", "jsonlite", "digest", "curl", "R.utils"))
-        shell: Rscript {0}
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          working-directory: localLLM
 
       - name: Install package
-        run: |
-          pak::local_install("localLLM", dependencies = TRUE)
-        shell: Rscript {0}
+        run: R CMD INSTALL localLLM
+        shell: bash
 
       - name: Run extended tests
         run: |
