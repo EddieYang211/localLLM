@@ -265,15 +265,13 @@ jobs:
 
       - name: Install R dependencies
         run: |
-          install.packages(c("devtools", "testthat", "Rcpp"), repos="https://cloud.r-project.org")
+          pak::pak(c("testthat", "Rcpp", "jsonlite", "digest", "curl", "R.utils"))
         shell: Rscript {0}
-        working-directory: .
 
       - name: Install package
         run: |
-          options(repos = c(CRAN = "https://cloud.r-project.org")); devtools::install("localLLM", dependencies = TRUE)
+          pak::local_install("localLLM", dependencies = TRUE)
         shell: Rscript {0}
-        working-directory: .
 
       - name: Run extended tests
         run: |
