@@ -47,8 +47,8 @@
 #'   used as-is for headers. Vector fields matching `sample_id` length are treated
 #'   as per-item values. Use `sample_id` to specify item IDs (meta, not rendered).
 #'   When `NULL`, each model must provide its own `prompts` entry.
-#' @param engine One of `"auto"`, `"parallel"`, or `"single"`. Controls whether
-#'   `generate_parallel()` or `generate()` is used under the hood.
+#' @param engine One of `"auto"`, `"parallel"`, or `"single"`. Selects
+#'   whether the parallel or single-prompt backend is used.
 #' @param batch_size Number of prompts to send per backend call when the
 #'   parallel engine is active. Must be >= 1.
 #' @param reuse_models If `TRUE`, model/context handles stay alive for the

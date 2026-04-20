@@ -4,7 +4,8 @@
 \alias{smart_chat_template}
 \title{Smart Chat Template Application}
 \usage{
-smart_chat_template(model, messages, template = NULL, add_assistant = TRUE)
+smart_chat_template(model, messages, template = NULL,
+  add_assistant = TRUE)
 }
 \arguments{
 \item{model}{A model object created with model_load}
@@ -19,7 +20,7 @@ smart_chat_template(model, messages, template = NULL, add_assistant = TRUE)
 Formatted chat template string
 }
 \description{
-Automatically detects the model type and applies the appropriate chat template.
-For Gemma models, uses the Gemma-specific format. For other models, 
-falls back to the standard apply_chat_template function.
+Automatically detects the model type and applies the appropriate chat
+template. For Gemma models, uses the Gemma-specific format. For other
+models, falls back to `apply_chat_template`.
 }

@@ -4,7 +4,8 @@
 \alias{apply_chat_template}
 \title{Apply Chat Template to Format Conversations}
 \usage{
-apply_chat_template(model, messages, template = NULL, add_assistant = TRUE)
+apply_chat_template(model, messages, template = NULL,
+  add_assistant = TRUE)
 }
 \arguments{
 \item{model}{A model object created with \code{\link{model_load}}}

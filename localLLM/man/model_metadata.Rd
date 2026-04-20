@@ -11,8 +11,8 @@ model_metadata(model)
 }
 \value{
 Named character vector where names are metadata keys and values are
-  the corresponding metadata values. Common keys include
-  \code{general.architecture}, \code{general.name}, and
+  the corresponding values. Common keys include
+  \code{general.architecture} and
   \code{tokenizer.chat_template}.
 }
 \description{

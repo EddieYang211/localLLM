@@ -10,6 +10,6 @@ quick_llama_reset()
 No return value, called for side effects (resets cached state).
 }
 \description{
-Clears cached model and context objects, forcing fresh initialization
-on the next call to quick_llama().
+Resets the cached model and context objects. The next call to
+`quick_llama()` will reinitialize from scratch.
 }

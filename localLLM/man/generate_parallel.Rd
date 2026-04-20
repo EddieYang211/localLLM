@@ -29,7 +29,8 @@ generate_parallel(
 
 \item{top_k}{Top-k sampling parameter (default: 40). Limits vocabulary to k most likely tokens}
 
-\item{top_p}{Top-p (nucleus) sampling parameter (default: 1.0). Cumulative probability threshold for token selection}
+\item{top_p}{Top-p (nucleus) sampling (default: 1.0). Probability threshold
+for token selection.}
 
 \item{temperature}{Sampling temperature (default: 0.0). Set to 0 for greedy decoding. Higher values increase creativity}
 
@@ -40,7 +41,7 @@ generate_parallel(
 \item{seed}{Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output}
 
 \item{progress}{Show a console progress bar while batches run. Defaults to
-\code{interactive()}: shown in an interactive R session, suppressed in
+\code{interactive()}: visible in interactive sessions, suppressed in
 scripts and \code{R CMD check}.}
 
 \item{verbosity}{Control backend logging during generation (default: 0L).

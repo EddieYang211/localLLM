@@ -49,8 +49,8 @@
 #' @param auto_format Whether to automatically apply chat template formatting (default: TRUE)
 #' @param chat_template Custom chat template to use (default: NULL uses model's built-in template)
 #' @param seed Random seed for reproducibility (default: 1234)
-#' @param progress Show a console progress bar when running parallel generation.
-#'   Default: \code{interactive()}. Has no effect for single-prompt runs.
+#' @param progress Show a console progress bar during parallel generation.
+#'   Defaults to \code{interactive()}. Has no effect for single-prompt runs.
 #' @param clean Whether to strip chat-template control tokens from the generated output.
 #'   Defaults to \code{FALSE}.
 #' @param hash When `TRUE` (default), compute SHA-256 hashes for the prompts fed into the
@@ -72,8 +72,9 @@
 #'                            auto_format = FALSE)
 #'
 #' # Custom system prompt
-#' code_response <- quick_llama("Write a Python hello world program",
-#'                             system_prompt = "You are a Python programming expert.")
+#' code_response <- quick_llama(
+#'   "Write a Python hello world program",
+#'   system_prompt = "You are a Python programming expert.")
 #'
 #' # Creative writing with higher temperature
 #' creative_response <- quick_llama("Tell me a story",
@@ -274,8 +275,8 @@ quick_llama <- function(prompt,
 
 #' Reset quick_llama state
 #'
-#' Clears cached model and context objects, forcing fresh initialization
-#' on the next call to quick_llama().
+#' Resets the cached model and context objects. The next call to
+#' `quick_llama()` will reinitialize from scratch.
 #'
 #' @return No return value, called for side effects (resets cached state).
 #' @export

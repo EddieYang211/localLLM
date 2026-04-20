@@ -18,8 +18,8 @@ NULL
 #' settings are buffered in-memory until [document_end()] is invoked, at which
 #' point a human-readable text report is written to disk.
 #'
-#' @param path Optional destination path for the log file. Defaults to
-#'   `localLLM_run_<timestamp>.txt` in the current working directory.
+#' @param path Optional log file path. Defaults to
+#'   `localLLM_run_<timestamp>.txt` in the working directory.
 #' @param metadata Optional named list of user-defined metadata to include in the
 #'   log header (e.g. project name, dataset id).
 #' @param append When `TRUE`, entries are appended to an existing file instead of

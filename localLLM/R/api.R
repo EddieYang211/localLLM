@@ -68,7 +68,8 @@ backend_free <- function() {
 #' model <- model_load("/path/to/my_model.gguf")
 #' 
 #' # Download from Hugging Face and cache locally
-#' hf_path = "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf"
+#' hf_path <- paste0("https://huggingface.co/Qwen/",
+#'                   "Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf")
 #' model <- model_load(hf_path)
 #' 
 #' # Load with GPU acceleration (offload 10 layers)
@@ -307,13 +308,15 @@ detokenize <- function(model, tokens) {
 #'   Role should be 'user', 'assistant', or 'system'
 #' @param template Optional custom template string (default: NULL, uses model's built-in template)
 #' @param add_assistant Whether to add assistant prompt suffix for response generation (default: TRUE)
+#' @usage apply_chat_template(model, messages, template = NULL,
+#'   add_assistant = TRUE)
 #' @return Formatted prompt string ready for text generation
 #' @export
 #' @examples
 #' \dontrun{
 #' # Load a chat model
 #' model <- model_load("path/to/chat_model.gguf")
-#' 
+#'
 #' # Format a conversation
 #' messages <- list(
 #'   list(role = "system", content = "You are a helpful assistant."),
@@ -321,10 +324,10 @@ detokenize <- function(model, tokens) {
 #'   list(role = "assistant", content = "Machine learning is..."),
 #'   list(role = "user", content = "Give me an example.")
 #' )
-#' 
+#'
 #' # Apply chat template
 #' formatted_prompt <- apply_chat_template(model, messages)
-#' 
+#'
 #' # Generate response
 #' response <- quick_llama(formatted_prompt)
 #' }
@@ -350,8 +353,8 @@ apply_chat_template <- function(model, messages, template = NULL, add_assistant 
 #'
 #' @param model A model object from \code{\link{model_load}}
 #' @return Named character vector where names are metadata keys and values are
-#'   the corresponding metadata values. Common keys include
-#'   \code{general.architecture}, \code{general.name}, and
+#'   the corresponding values. Common keys include
+#'   \code{general.architecture} and
 #'   \code{tokenizer.chat_template}.
 #' @export
 #' @examples
@@ -381,7 +384,8 @@ model_metadata <- function(model) {
 #' @param prompt Character string containing the input text prompt
 #' @param max_tokens Maximum number of tokens to generate (default: 100). Higher values produce longer responses
 #' @param top_k Top-k sampling parameter (default: 40). Limits vocabulary to k most likely tokens. Use 0 to disable
-#' @param top_p Top-p (nucleus) sampling parameter (default: 1.0). Cumulative probability threshold for token selection
+#' @param top_p Top-p (nucleus) sampling (default: 1.0). Probability threshold
+#'   for token selection.
 #' @param temperature Sampling temperature (default: 0.0). Set to 0 for greedy decoding. Higher values increase creativity
 #' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable
 #' @param penalty_repeat Repetition penalty strength (default: 1.0). Values >1 discourage repetition. Set to 1.0 to disable
@@ -411,7 +415,8 @@ model_metadata <- function(model) {
 #' response <- generate(ctx, "Hello, how are you?", max_tokens = 50)
 #'
 #' # Creative writing with higher temperature
-#' story <- generate(ctx, "Once upon a time", max_tokens = 200, temperature = 0.8)
+#' story <- generate(ctx, "Once upon a time",
+#'                   max_tokens = 200, temperature = 0.8)
 #'
 #' # Prevent repetition
 #' no_repeat <- generate(ctx, "Tell me about AI",
@@ -502,13 +507,14 @@ generate <- function(context, prompt, max_tokens = 100L, top_k = 40L, top_p = 1.
 #' @param prompts Character vector of input text prompts
 #' @param max_tokens Maximum number of tokens to generate (default: 100)
 #' @param top_k Top-k sampling parameter (default: 40). Limits vocabulary to k most likely tokens
-#' @param top_p Top-p (nucleus) sampling parameter (default: 1.0). Cumulative probability threshold for token selection
+#' @param top_p Top-p (nucleus) sampling (default: 1.0). Probability threshold
+#'   for token selection.
 #' @param temperature Sampling temperature (default: 0.0). Set to 0 for greedy decoding. Higher values increase creativity
 #' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable
 #' @param penalty_repeat Repetition penalty strength (default: 1.0). Values >1 discourage repetition. Set to 1.0 to disable
 #' @param seed Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output
 #' @param progress Show a console progress bar while batches run. Defaults to
-#'   \code{interactive()}: shown in an interactive R session, suppressed in
+#'   \code{interactive()}: visible in interactive sessions, suppressed in
 #'   scripts and \code{R CMD check}.
 #' @param verbosity Control backend logging during generation (default: 0L).
 #'   Larger numbers print more detail: \code{0} shows only errors, \code{1}

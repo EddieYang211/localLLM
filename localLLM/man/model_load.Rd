@@ -75,7 +75,8 @@ avoid repeated downloads.
 model <- model_load("/path/to/my_model.gguf")
 
 # Download from Hugging Face and cache locally
-hf_path = "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf"
+hf_path <- paste0("https://huggingface.co/Qwen/",
+                  "Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf")
 model <- model_load(hf_path)
 
 # Load with GPU acceleration (offload 10 layers)
@@ -99,5 +100,6 @@ model <- model_load("/path/to/model.gguf", verbosity = 2L)
 }
 }
 \seealso{
-\code{\link{context_create}}, \code{\link{download_model}}, \code{\link{get_model_cache_dir}}, \code{\link{list_cached_models}}
+\code{\link{context_create}}, \code{\link{download_model}},
+\code{\link{get_model_cache_dir}}, \code{\link{list_cached_models}}
 }

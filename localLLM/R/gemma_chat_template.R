@@ -72,14 +72,16 @@ apply_gemma_chat_template <- function(messages, add_assistant = TRUE) {
 
 #' Smart Chat Template Application
 #'
-#' Automatically detects the model type and applies the appropriate chat template.
-#' For Gemma models, uses the Gemma-specific format. For other models, 
-#' falls back to the standard apply_chat_template function.
+#' Automatically detects the model type and applies the appropriate chat
+#' template. For Gemma models, uses the Gemma-specific format. For other
+#' models, falls back to `apply_chat_template`.
 #'
 #' @param model A model object created with model_load
 #' @param messages A list of message objects
 #' @param template Custom template (passed to apply_chat_template if not Gemma)
 #' @param add_assistant Whether to add assistant turn prefix
+#' @usage smart_chat_template(model, messages, template = NULL,
+#'   add_assistant = TRUE)
 #' @return Formatted chat template string
 #' @export
 smart_chat_template <- function(model, messages, template = NULL, add_assistant = TRUE) {

@@ -75,7 +75,9 @@ output <- generate(ctx, "The future of AI is", max_tokens = 100)
 ### Batch Processing
 \preformatted{
 # Process multiple prompts efficiently
-prompts <- c("Summarize AI trends", "Explain machine learning", "What is deep learning?")
+prompts <- c("Summarize AI trends",
+             "Explain machine learning",
+             "What is deep learning?")
 responses <- quick_llama(prompts)
 }
 

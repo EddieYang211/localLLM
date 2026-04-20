@@ -28,7 +28,8 @@ generate(
 
 \item{top_k}{Top-k sampling parameter (default: 40). Limits vocabulary to k most likely tokens. Use 0 to disable}
 
-\item{top_p}{Top-p (nucleus) sampling parameter (default: 1.0). Cumulative probability threshold for token selection}
+\item{top_p}{Top-p (nucleus) sampling (default: 1.0). Probability threshold
+for token selection.}
 
 \item{temperature}{Sampling temperature (default: 0.0). Set to 0 for greedy decoding. Higher values increase creativity}
 
@@ -72,7 +73,8 @@ ctx <- context_create(model, n_ctx = 2048)
 response <- generate(ctx, "Hello, how are you?", max_tokens = 50)
 
 # Creative writing with higher temperature
-story <- generate(ctx, "Once upon a time", max_tokens = 200, temperature = 0.8)
+story <- generate(ctx, "Once upon a time",
+                  max_tokens = 200, temperature = 0.8)
 
 # Prevent repetition
 no_repeat <- generate(ctx, "Tell me about AI",

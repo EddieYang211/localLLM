@@ -7,8 +7,8 @@
 document_start(path = NULL, metadata = list(), append = FALSE)
 }
 \arguments{
-\item{path}{Optional destination path for the log file. Defaults to
-`localLLM_run_<timestamp>.txt` in the current working directory.}
+\item{path}{Optional log file path. Defaults to
+`localLLM_run_<timestamp>.txt` in the working directory.}
 
 \item{metadata}{Optional named list of user-defined metadata to include in the
 log header (e.g. project name, dataset id).}
