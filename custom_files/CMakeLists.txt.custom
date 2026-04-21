@@ -1,4 +1,7 @@
 cmake_minimum_required(VERSION 3.14) # for add_link_options and implicit target directories.
+# Must be before project() to take effect for CUDA targets (fixes Ninja+MSVC+CUDA -Fd PDB bug)
+cmake_policy(SET CMP0141 NEW)
+set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "Embedded" CACHE STRING "" FORCE)
 project("llama.cpp" C CXX)
 include(CheckIncludeFileCXX)
 
@@ -61,6 +64,15 @@ else()
 endif()
 
 set(GGML_ALL_WARNINGS OFF CACHE BOOL "Disable warnings for clean build" FORCE)
+
+# MSVC requires /utf-8 to handle Unicode characters in source files (e.g. jinja/utils.h)
+# Must NOT be passed to nvcc directly (it interprets /utf-8 as an input file on Windows)
+if(MSVC)
+    add_compile_options(
+        $<$<COMPILE_LANGUAGE:C>:/utf-8>
+        $<$<COMPILE_LANGUAGE:CXX>:/utf-8>
+    )
+endif()
 
 # Include original llama.cpp build logic (we ARE the CMakeLists.txt now)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/build-info.cmake)

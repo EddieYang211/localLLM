@@ -1,7 +1,6 @@
-# --- FILE: .github/workflows/release-builder.yml (v1.0.38 - Professional Windows Fix) ---
+# --- FILE: .github/workflows/release-builder.yml (v1.2.0 - Vulkan Windows GPU Support) ---
 name: Build and Release Pre-compiled Libraries
 
-# FIX FOR LINUX: Add permissions block to allow uploading to releases.
 permissions:
   contents: write
 
@@ -21,9 +20,14 @@ jobs:
             artifact_name: liblocalllm_linux_x64.zip
             lib_name: liblocalllm.so
           - os: windows-latest
-            os_name: Windows
+            os_name: Windows (CPU)
             artifact_name: localllm_windows_x64.zip
             lib_name: localllm.dll
+          - os: windows-latest
+            os_name: Windows (Vulkan)
+            artifact_name: localllm_windows_x64_vulkan.zip
+            lib_name: localllm.dll
+            vulkan: true
           - os: macos-15-intel
             os_name: macOS (Intel)
             artifact_name: liblocalllm_macos_x64.zip
@@ -34,8 +38,7 @@ jobs:
             lib_name: liblocalllm.dylib
 
     runs-on: ${{ matrix.os }}
-    
-    # Professional Windows configuration
+
     env:
       VCPKG_DEFAULT_TRIPLET: x64-windows-static
 
@@ -52,34 +55,40 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev
 
-    # Windows-specific vcpkg setup
-    - name: Setup vcpkg (Windows - Fixed)
-      if: matrix.os == 'windows-latest'
+    # Windows CPU: vcpkg for curl
+    - name: Setup vcpkg (Windows CPU)
+      if: matrix.os == 'windows-latest' && matrix.vulkan != true
       uses: johnwason/vcpkg-action@v6
       id: vcpkg
       with:
         pkgs: curl
         triplet: x64-windows-static
         token: ${{ github.token }}
-        
-    - name: Set vcpkg environment (Windows - Fixed)
-      if: matrix.os == 'windows-latest'
+
+    - name: Set vcpkg environment (Windows CPU)
+      if: matrix.os == 'windows-latest' && matrix.vulkan != true
       shell: bash
       run: |
         echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> $GITHUB_ENV
         echo "VCPKG_CMAKE_PATH=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
 
+    # Windows Vulkan: install Vulkan SDK (headers + loader import lib, compile-time only)
+    # vulkan-1.dll at runtime comes from the user's GPU driver — nothing to bundle
+    - name: Install Vulkan SDK (Windows Vulkan)
+      if: matrix.vulkan == true
+      uses: humbletim/setup-vulkan-sdk@v1.2.0
+      with:
+        vulkan-version: 1.3.290.0
+        vulkan-components: Vulkan-Headers, Vulkan-Loader
+        vulkan-use-cache: true
+
     # --- Inject our custom files ---
     - name: Copy custom files to llama.cpp directory
       shell: bash
       run: |
-        echo "Copying custom C-API and CMake files..."
         cp custom_files/localllm_capi.h backend/llama.cpp/
         cp custom_files/localllm_capi.cpp backend/llama.cpp/
         cp custom_files/CMakeLists.txt.custom backend/llama.cpp/CMakeLists.txt
-        
-        # Copy symbol verification script
-        echo "Copying symbol verification script..."
         cp scripts/check_symbols.sh backend/llama.cpp/
         chmod +x backend/llama.cpp/check_symbols.sh
 
@@ -89,132 +98,109 @@ jobs:
       run: |
         cd backend/llama.cpp
         mkdir build && cd build
+        mkdir -p bin
 
-        # Base CMake arguments
         CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF"
-        
-        # Platform-specific arguments with FIXED path handling
+        CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=${PWD}/bin"
+
         OS_NAME="${{ matrix.os }}"
-        if [[ "$OS_NAME" == "windows-latest" ]]; then
-          # FIXED: Use environment variable set by vcpkg action
+
+        if [[ "$OS_NAME" == "windows-latest" && "${{ matrix.vulkan }}" == "true" ]]; then
+          # Vulkan build: standard VS generator, just add -DGGML_VULKAN=ON
+          CMAKE_ARGS="$CMAKE_ARGS -DGGML_VULKAN=ON"
+          CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
+          echo "Vulkan GPU build"
+
+        elif [[ "$OS_NAME" == "windows-latest" ]]; then
+          # CPU build: VS generator + vcpkg
           CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_TOOLCHAIN_FILE=${VCPKG_CMAKE_PATH} -DVCPKG_TARGET_TRIPLET=x64-windows-static"
           CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
-          echo "🔧 Windows: Using vcpkg toolchain at ${VCPKG_CMAKE_PATH}"
+          echo "Windows CPU build"
+
         elif [[ "$OS_NAME" == "macos-15-intel" ]]; then
           CMAKE_ARGS="$CMAKE_ARGS -DLLAMA_ACCELERATE=ON"
-          echo "💻 Using CPU acceleration for Intel Mac (Metal disabled)"
+          echo "macOS Intel: CPU + Accelerate"
+
         elif [[ "$OS_NAME" == "macos-14" ]]; then
           CMAKE_ARGS="$CMAKE_ARGS -DLLAMA_ACCELERATE=ON -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
-          echo "🚀 Enabling Metal GPU acceleration for Apple Silicon (with embedded library)"
-        else # Linux
-          CMAKE_ARGS="$CMAKE_ARGS -DLLAMA_ACCELERATE=ON"
-        fi
-        
-        echo "Configuring with CMake: $CMAKE_ARGS"
-        # Set a writable runtime output directory to fix Metal file copy issues
-        CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=${PWD}/bin"
-        mkdir -p bin
-        cmake .. $CMAKE_ARGS
-        
-        echo "Building target 'localllm'..."
-        # FIXED BUILD: Use matrix.os for platform detection
-        if [[ "$OS_NAME" == "windows-latest" ]]; then
-          cmake --build . --config Release --target localllm --parallel
+          echo "macOS Apple Silicon: Metal GPU"
+
         else
-          cmake --build . --config Release --target localllm --parallel
+          CMAKE_ARGS="$CMAKE_ARGS -DLLAMA_ACCELERATE=ON"
+          echo "Linux: CPU build"
         fi
+
+        echo "Configuring: cmake .. $CMAKE_ARGS"
+        cmake .. $CMAKE_ARGS
+
+        echo "Building target 'localllm'..."
+        cmake --build . --config Release --target localllm --parallel
 
     # --- GLUE-CODE ARCHITECTURE: Verify static library symbol completeness ---
     - name: Verify Static Library Symbols
       shell: bash
       run: |
         cd backend/llama.cpp
-        echo "🔍 Running symbol verification for glue-code architecture..."
-        echo "📊 Platform: ${{ runner.os }} (${{ matrix.os_name }})"
-        
-        # Run our symbol verification script
+        echo "Running symbol verification (${{ matrix.os_name }})..."
         if ./check_symbols.sh build; then
-          echo "✅ Static libraries contain all required symbols - glue-code architecture is working!"
-          echo "🎯 This platform may be able to use pure static library linking in the future."
+          echo "Static libraries complete - glue-code architecture verified."
         else
-          echo "⚠️  Some symbols missing from static libraries."
-          echo "🔧 OBJECT library fallback strategy will handle the missing symbols."
-          echo "📈 Platform-specific analysis:"
-          case "${{ matrix.os }}" in
-            "ubuntu-latest")
-              echo "    Linux often has symbols in libllama.a but missing from libggml.a"
-              ;;
-            "macos-15-intel"|"macos-14") 
-              echo "    macOS typically needs OBJECT library fallback due to framework integration"
-              ;;
-            "windows-latest")
-              echo "    Windows may have different symbol distribution across static libraries"
-              ;;
-          esac
-          echo "    The build will continue with OBJECT library strategy."
+          echo "Some symbols missing — OBJECT library fallback handled this during build."
         fi
 
     # --- Package and Upload ---
     - name: Package the artifact
       shell: bash
       run: |
-        # Create a temporary 'staging' directory for packaging.
         mkdir -p staging/lib
-        
-        # Find the actual location of the compiled library
-        echo "🔍 Searching for compiled library..."
+
+        echo "Searching for compiled library..."
         find backend/llama.cpp/build -name "*localllm*" -type f
-        
-        # Define the path to the compiled library based on platform and actual location
+
+        # Locate the compiled library
         if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-          # Check multiple possible locations for Windows
-          if [[ -f "backend/llama.cpp/build/bin/Release/${{ matrix.lib_name }}" ]]; then
-            LIB_PATH="backend/llama.cpp/build/bin/Release/${{ matrix.lib_name }}"
-          elif [[ -f "backend/llama.cpp/build/Release/${{ matrix.lib_name }}" ]]; then
-            LIB_PATH="backend/llama.cpp/build/Release/${{ matrix.lib_name }}"
-          elif [[ -f "backend/llama.cpp/build/${{ matrix.lib_name }}" ]]; then
-            LIB_PATH="backend/llama.cpp/build/${{ matrix.lib_name }}"
-          else
-            echo "❌ Cannot find Windows library file"
-            find backend/llama.cpp/build -name "*.dll" -type f
-            exit 1
+          for CANDIDATE in \
+            "backend/llama.cpp/build/bin/Release/${{ matrix.lib_name }}" \
+            "backend/llama.cpp/build/bin/${{ matrix.lib_name }}" \
+            "backend/llama.cpp/build/Release/${{ matrix.lib_name }}" \
+            "backend/llama.cpp/build/${{ matrix.lib_name }}"
+          do
+            if [[ -f "$CANDIDATE" ]]; then LIB_PATH="$CANDIDATE"; break; fi
+          done
+          if [[ -z "$LIB_PATH" ]]; then
+            echo "Cannot find Windows library"; find backend/llama.cpp/build -name "*.dll"; exit 1
           fi
         else
-          # Check multiple possible locations for Unix-like systems
-          if [[ -f "backend/llama.cpp/build/bin/${{ matrix.lib_name }}" ]]; then
-            LIB_PATH="backend/llama.cpp/build/bin/${{ matrix.lib_name }}"
-          elif [[ -f "backend/llama.cpp/build/${{ matrix.lib_name }}" ]]; then
-            LIB_PATH="backend/llama.cpp/build/${{ matrix.lib_name }}"
-          elif [[ -f "backend/llama.cpp/build/lib${{ matrix.lib_name }}" ]]; then
-            LIB_PATH="backend/llama.cpp/build/lib${{ matrix.lib_name }}"
-          else
-            echo "❌ Cannot find Unix library file"
-            find backend/llama.cpp/build -name "*.so" -o -name "*.dylib" -type f
-            exit 1
+          for CANDIDATE in \
+            "backend/llama.cpp/build/bin/${{ matrix.lib_name }}" \
+            "backend/llama.cpp/build/${{ matrix.lib_name }}" \
+            "backend/llama.cpp/build/lib${{ matrix.lib_name }}"
+          do
+            if [[ -f "$CANDIDATE" ]]; then LIB_PATH="$CANDIDATE"; break; fi
+          done
+          if [[ -z "$LIB_PATH" ]]; then
+            echo "Cannot find Unix library"; find backend/llama.cpp/build -name "*.so" -o -name "*.dylib"; exit 1
           fi
         fi
 
-        # Verify the library file exists and copy it
-        echo "📁 Using library path: $LIB_PATH"
-        if [[ -f "$LIB_PATH" ]]; then
-          echo "✅ Library file found, copying to staging/lib/"
-          cp "$LIB_PATH" staging/lib/
-          echo "📊 Library info:"
-          ls -la staging/lib/
-          file staging/lib/*
-        else
-          echo "❌ Library file not found at: $LIB_PATH"
-          exit 1
+        echo "Library: $LIB_PATH"
+        cp "$LIB_PATH" staging/lib/
+
+        # Vulkan: vulkan-1.dll ships with every modern GPU driver — nothing to bundle.
+        # A note is included so users know the GPU requirement.
+        if [[ "${{ matrix.vulkan }}" == "true" ]]; then
+          printf '%s\n' \
+            "This build requires a Vulkan-capable GPU driver (NVIDIA, AMD, or Intel Arc)." \
+            "vulkan-1.dll is provided by your GPU driver and does not need to be installed separately." \
+            "Supported: NVIDIA GeForce 10xx+, AMD RX 400+, Intel Arc." \
+            > staging/GPU_REQUIREMENTS.txt
         fi
 
-        # Create the zip archive.
-        echo "📦 Creating zip archive: ${{ matrix.artifact_name }}"
+        echo "Creating ${{ matrix.artifact_name }}"
         cd staging
         if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-          # Use PowerShell's Compress-Archive on Windows
-          powershell -Command "Compress-Archive -Path * -DestinationPath ../${{ matrix.artifact_name }}"
+          powershell -Command "Compress-Archive -Path * -DestinationPath '../${{ matrix.artifact_name }}'"
         else
-          # Use zip on Unix-like systems
           zip -r ../${{ matrix.artifact_name }} .
         fi
         cd ..

@@ -20,6 +20,7 @@
 #include <fstream>
 #include <iostream>
 #include <cstdio>
+#include <filesystem>
 #ifdef __APPLE__
 #include <sys/sysctl.h>
 #elif defined(__linux__)
