@@ -121,7 +121,7 @@ get_lib_path <- function() {
   }
   if (!has_loader) return(FALSE)
 
-  # Require a hardware ICD — rules out software-only Vulkan (lavapipe)
+  # Require a hardware ICD -- rules out software-only Vulkan (lavapipe)
   icd_paths <- c(
     "/usr/share/vulkan/icd.d/nvidia_icd.json",
     "/usr/share/vulkan/icd.d/radeon_icd.x86_64.json",
@@ -145,7 +145,7 @@ get_lib_path <- function() {
       gpu <- if (is.null(use_gpu)) .detect_vulkan_windows() else isTRUE(use_gpu)
       if (gpu) {
         filename <- "localllm_windows_x64_vulkan.zip"
-        .localllm_message("Vulkan GPU detected — using GPU-accelerated build.")
+        .localllm_message("Vulkan GPU detected -- using GPU-accelerated build.")
       } else {
         filename <- "localllm_windows_x64.zip"
       }
@@ -155,7 +155,7 @@ get_lib_path <- function() {
       gpu <- if (is.null(use_gpu)) .detect_vulkan_linux() else isTRUE(use_gpu)
       if (gpu) {
         filename <- "liblocalllm_linux_x64_vulkan.zip"
-        .localllm_message("Vulkan GPU detected — using GPU-accelerated build.")
+        .localllm_message("Vulkan GPU detected -- using GPU-accelerated build.")
       } else {
         filename <- "liblocalllm_linux_x64.zip"
       }

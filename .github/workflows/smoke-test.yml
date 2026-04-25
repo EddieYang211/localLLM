@@ -1,0 +1,87 @@
+name: Smoke Test — All Platforms
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v1.3.0)'
+        required: true
+        default: 'v1.3.0'
+
+jobs:
+  smoke:
+    name: Smoke ${{ matrix.os_name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            os_name: Linux CPU
+            artifact: liblocalllm_linux_x64.zip
+            lib: lib/liblocalllm.so
+          - os: ubuntu-latest
+            os_name: Linux Vulkan
+            artifact: liblocalllm_linux_x64_vulkan.zip
+            lib: lib/liblocalllm.so
+            vulkan: true
+          - os: windows-latest
+            os_name: Windows CPU
+            artifact: localllm_windows_x64.zip
+            lib: lib/localllm.dll
+          - os: windows-latest
+            os_name: Windows Vulkan
+            artifact: localllm_windows_x64_vulkan.zip
+            lib: lib/localllm.dll
+            vulkan_win: true
+          - os: macos-13
+            os_name: macOS Intel
+            artifact: liblocalllm_macos_x64.zip
+            lib: lib/liblocalllm.dylib
+          - os: macos-14
+            os_name: macOS Apple Silicon
+            artifact: liblocalllm_macos_arm64.zip
+            lib: lib/liblocalllm.dylib
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    # Linux Vulkan: install Vulkan loader so dyn.load() can resolve libvulkan.so.1
+    - name: Install Vulkan loader (Linux Vulkan)
+      if: matrix.vulkan == true
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libvulkan1
+
+    # Windows Vulkan: install Vulkan SDK so dyn.load() can resolve vulkan-1.dll
+    - name: Install Vulkan runtime (Windows Vulkan)
+      if: matrix.vulkan_win == true
+      shell: pwsh
+      run: |
+        choco install vulkan-sdk -y --no-progress
+        $vulkanDir = Get-ChildItem "C:\VulkanSDK" | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+        echo "$vulkanDir\Bin" >> $env:GITHUB_PATH
+
+    - name: Download and unzip artifact
+      shell: bash
+      run: |
+        curl -fsSL -o artifact.zip \
+          "https://github.com/EddieYang211/localLLM/releases/download/${{ github.event.inputs.version }}/${{ matrix.artifact }}"
+        unzip artifact.zip
+
+    - name: Setup R
+      uses: r-lib/actions/setup-r@v2
+
+    - name: Smoke test — dyn.load
+      shell: bash
+      run: |
+        Rscript -e '
+          lib <- "${{ matrix.lib }}"
+          cat("Loading:", lib, "\n")
+          dyn.load(lib)
+          cat("dyn.load OK\n")
+          dlls <- getLoadedDLLs()
+          name <- tools::file_path_sans_ext(basename(lib))
+          if (!is.null(dlls[[name]])) {
+            cat("Confirmed loaded:", dlls[[name]]$path, "\n")
+          }
+        '
