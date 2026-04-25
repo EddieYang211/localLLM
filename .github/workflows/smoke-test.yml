@@ -33,7 +33,7 @@ jobs:
             artifact: localllm_windows_x64_vulkan.zip
             lib: lib/localllm.dll
             vulkan_win: true
-          - os: macos-13
+          - os: macos-15-intel
             os_name: macOS Intel
             artifact: liblocalllm_macos_x64.zip
             lib: lib/liblocalllm.dylib
@@ -61,12 +61,28 @@ jobs:
         $vulkanDir = Get-ChildItem "C:\VulkanSDK" | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
         echo "$vulkanDir\Bin" >> $env:GITHUB_PATH
 
-    - name: Download and unzip artifact
-      shell: bash
+    # Unix: standard curl + unzip
+    - name: Download and unzip artifact (Unix)
+      if: runner.os != 'Windows'
       run: |
         curl -fsSL -o artifact.zip \
           "https://github.com/EddieYang211/localLLM/releases/download/${{ github.event.inputs.version }}/${{ matrix.artifact }}"
         unzip artifact.zip
+
+    # Windows: PowerShell handles backslash paths in Compress-Archive zips correctly
+    - name: Download and unzip artifact (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        Invoke-WebRequest `
+          -Uri "https://github.com/EddieYang211/localLLM/releases/download/${{ github.event.inputs.version }}/${{ matrix.artifact }}" `
+          -OutFile artifact.zip
+        Expand-Archive -Path artifact.zip -DestinationPath .
+
+    # Linux: show missing dependencies before attempting dyn.load
+    - name: Check shared library dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: ldd "${{ matrix.lib }}" || true
 
     - name: Setup R
       uses: r-lib/actions/setup-r@v2
@@ -74,14 +90,4 @@ jobs:
     - name: Smoke test — dyn.load
       shell: bash
       run: |
-        Rscript -e '
-          lib <- "${{ matrix.lib }}"
-          cat("Loading:", lib, "\n")
-          dyn.load(lib)
-          cat("dyn.load OK\n")
-          dlls <- getLoadedDLLs()
-          name <- tools::file_path_sans_ext(basename(lib))
-          if (!is.null(dlls[[name]])) {
-            cat("Confirmed loaded:", dlls[[name]]$path, "\n")
-          }
-        '
+        Rscript -e 'dyn.load("${{ matrix.lib }}"); cat("dyn.load OK\n")'
