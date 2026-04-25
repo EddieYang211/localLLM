@@ -1,4 +1,4 @@
-# --- FILE: .github/workflows/release-builder.yml (v1.2.0 - Vulkan Windows GPU Support) ---
+# --- FILE: .github/workflows/release-builder.yml (v1.3.0 - GPU Support: Vulkan + macOS Intel Metal) ---
 name: Build and Release Pre-compiled Libraries
 
 permissions:
@@ -77,15 +77,16 @@ jobs:
         echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> $GITHUB_ENV
         echo "VCPKG_CMAKE_PATH=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
 
-    # Windows Vulkan: install Vulkan SDK (headers + loader import lib, compile-time only)
+    # Windows Vulkan: install Vulkan SDK via choco (provides headers + vulkan-1.lib for linking)
     # vulkan-1.dll at runtime comes from the user's GPU driver — nothing to bundle
     - name: Install Vulkan SDK (Windows Vulkan)
       if: matrix.vulkan == true && matrix.os == 'windows-latest'
-      uses: humbletim/setup-vulkan-sdk@v1.2.0
-      with:
-        vulkan-version: 1.3.290.0
-        vulkan-components: Vulkan-Headers, Vulkan-Loader
-        vulkan-use-cache: true
+      shell: pwsh
+      run: |
+        choco install vulkan-sdk -y --no-progress
+        $vulkanDir = Get-ChildItem "C:\VulkanSDK" | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+        echo "VULKAN_SDK=$vulkanDir" >> $env:GITHUB_ENV
+        echo "$vulkanDir\Bin" >> $env:GITHUB_PATH
 
     # Linux Vulkan: glslc compiles GLSL shaders to SPIR-V at build time
     # libvulkan.so.1 at runtime comes from the user's GPU driver — nothing to bundle
