@@ -19,6 +19,11 @@ jobs:
             os_name: Linux
             artifact_name: liblocalllm_linux_x64.zip
             lib_name: liblocalllm.so
+          - os: ubuntu-latest
+            os_name: Linux (Vulkan)
+            artifact_name: liblocalllm_linux_x64_vulkan.zip
+            lib_name: liblocalllm.so
+            vulkan: true
           - os: windows-latest
             os_name: Windows (CPU)
             artifact_name: localllm_windows_x64.zip
@@ -75,12 +80,20 @@ jobs:
     # Windows Vulkan: install Vulkan SDK (headers + loader import lib, compile-time only)
     # vulkan-1.dll at runtime comes from the user's GPU driver — nothing to bundle
     - name: Install Vulkan SDK (Windows Vulkan)
-      if: matrix.vulkan == true
+      if: matrix.vulkan == true && matrix.os == 'windows-latest'
       uses: humbletim/setup-vulkan-sdk@v1.2.0
       with:
         vulkan-version: 1.3.290.0
         vulkan-components: Vulkan-Headers, Vulkan-Loader
         vulkan-use-cache: true
+
+    # Linux Vulkan: glslc compiles GLSL shaders to SPIR-V at build time
+    # libvulkan.so.1 at runtime comes from the user's GPU driver — nothing to bundle
+    - name: Install Vulkan SDK (Linux Vulkan)
+      if: matrix.vulkan == true && runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y glslc libvulkan-dev spirv-tools
 
     # --- Inject our custom files ---
     - name: Copy custom files to llama.cpp directory
@@ -118,12 +131,16 @@ jobs:
           echo "Windows CPU build"
 
         elif [[ "$OS_NAME" == "macos-15-intel" ]]; then
-          CMAKE_ARGS="$CMAKE_ARGS -DLLAMA_ACCELERATE=ON"
-          echo "macOS Intel: CPU + Accelerate"
+          CMAKE_ARGS="$CMAKE_ARGS -DLLAMA_ACCELERATE=ON -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
+          echo "macOS Intel: Metal GPU + Accelerate"
 
         elif [[ "$OS_NAME" == "macos-14" ]]; then
           CMAKE_ARGS="$CMAKE_ARGS -DLLAMA_ACCELERATE=ON -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
           echo "macOS Apple Silicon: Metal GPU"
+
+        elif [[ "$OS_NAME" == "ubuntu-latest" && "${{ matrix.vulkan }}" == "true" ]]; then
+          CMAKE_ARGS="$CMAKE_ARGS -DGGML_VULKAN=ON"
+          echo "Linux: Vulkan GPU build"
 
         else
           CMAKE_ARGS="$CMAKE_ARGS -DLLAMA_ACCELERATE=ON"
@@ -186,12 +203,13 @@ jobs:
         echo "Library: $LIB_PATH"
         cp "$LIB_PATH" staging/lib/
 
-        # Vulkan: vulkan-1.dll ships with every modern GPU driver — nothing to bundle.
+        # Vulkan: GPU runtime library ships with every modern GPU driver — nothing to bundle.
         # A note is included so users know the GPU requirement.
         if [[ "${{ matrix.vulkan }}" == "true" ]]; then
           printf '%s\n' \
             "This build requires a Vulkan-capable GPU driver (NVIDIA, AMD, or Intel Arc)." \
-            "vulkan-1.dll is provided by your GPU driver and does not need to be installed separately." \
+            "Windows: vulkan-1.dll is provided by your GPU driver." \
+            "Linux: libvulkan.so.1 is provided by your GPU driver or mesa-vulkan-drivers." \
             "Supported: NVIDIA GeForce 10xx+, AMD RX 400+, Intel Arc." \
             > staging/GPU_REQUIREMENTS.txt
         fi

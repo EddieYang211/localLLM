@@ -100,6 +100,5 @@ model <- model_load("/path/to/model.gguf", verbosity = 2L)
 }
 }
 \seealso{
-\code{\link{context_create}}, \code{\link{download_model}},
-\code{\link{get_model_cache_dir}}, \code{\link{list_cached_models}}
+\code{\link{context_create}}, \code{\link{download_model}}, \code{\link{get_model_cache_dir}}, \code{\link{list_cached_models}}
 }

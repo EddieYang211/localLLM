@@ -4,7 +4,15 @@
 \alias{install_localLLM}
 \title{Install localLLM Backend Library}
 \usage{
-install_localLLM()
+install_localLLM(force_cpu = FALSE, force_reinstall = FALSE)
+}
+\arguments{
+\item{force_cpu}{Logical. If \code{TRUE}, always download the CPU-only build even
+when a GPU is detected. Default \code{FALSE}.}
+
+\item{force_reinstall}{Logical. If \code{TRUE}, remove any existing installation
+and re-download. Useful for switching from a CPU build to a GPU build after
+installing a GPU driver. Default \code{FALSE}.}
 }
 \value{
 Returns NULL invisibly. Called for side effects.
@@ -17,11 +25,23 @@ required for the localLLM package to function.
 This function downloads platform-specific pre-compiled binaries from GitHub releases.
   The backend library is stored in the user's data directory and loaded at runtime.
   Internet connection is required for the initial download.
+
+  On Windows and Linux, GPU support is auto-detected: if a Vulkan-capable GPU driver
+  is found, the GPU-accelerated build is downloaded automatically. Use
+  \code{force_cpu = TRUE} to override this and install the CPU build instead.
+
+  macOS always downloads the Metal-enabled build (both Apple Silicon and Intel).
 }
 \examples{
 \dontrun{
-# Install the backend library
+# Standard install (auto-detects GPU)
 install_localLLM()
+
+# Force CPU build
+install_localLLM(force_cpu = TRUE)
+
+# Reinstall after adding a GPU driver
+install_localLLM(force_reinstall = TRUE)
 }
 }
 \seealso{
