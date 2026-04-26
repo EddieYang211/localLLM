@@ -123,12 +123,16 @@ jobs:
           # Vulkan build: standard VS generator, just add -DGGML_VULKAN=ON
           CMAKE_ARGS="$CMAKE_ARGS -DGGML_VULKAN=ON"
           CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
+          # Disable native CPU detection: GHA Azure VMs have AVX-512 but most consumer
+          # CPUs do not. Build to AVX2 baseline so the DLL runs on all x86-64 hardware.
+          CMAKE_ARGS="$CMAKE_ARGS -DGGML_NATIVE=OFF -DGGML_AVX512=OFF"
           echo "Vulkan GPU build"
 
         elif [[ "$OS_NAME" == "windows-latest" ]]; then
           # CPU build: VS generator + vcpkg
           CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_TOOLCHAIN_FILE=${VCPKG_CMAKE_PATH} -DVCPKG_TARGET_TRIPLET=x64-windows-static"
           CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
+          CMAKE_ARGS="$CMAKE_ARGS -DGGML_NATIVE=OFF -DGGML_AVX512=OFF"
           echo "Windows CPU build"
 
         elif [[ "$OS_NAME" == "macos-15-intel" ]]; then
@@ -141,10 +145,12 @@ jobs:
 
         elif [[ "$OS_NAME" == "ubuntu-latest" && "${{ matrix.vulkan }}" == "true" ]]; then
           CMAKE_ARGS="$CMAKE_ARGS -DGGML_VULKAN=ON"
+          CMAKE_ARGS="$CMAKE_ARGS -DGGML_NATIVE=OFF -DGGML_AVX512=OFF"
           echo "Linux: Vulkan GPU build"
 
         else
           CMAKE_ARGS="$CMAKE_ARGS -DLLAMA_ACCELERATE=ON"
+          CMAKE_ARGS="$CMAKE_ARGS -DGGML_NATIVE=OFF -DGGML_AVX512=OFF"
           echo "Linux: CPU build"
         fi
 
