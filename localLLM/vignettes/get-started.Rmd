@@ -29,11 +29,26 @@ install.packages("localLLM")
 ```
 ### Step 2: Install the backend library
 
-The `install_localLLM()` function automatically detects your operating system (Windows, macOS, Linux) and processor architecture to download the appropriate pre-compiled library.
+The `install_localLLM()` function automatically detects your platform and downloads the appropriate pre-compiled library. GPU acceleration is selected automatically when a compatible GPU driver is detected:
+
+| Platform | GPU backend | Detection method |
+|----------|-------------|-----------------|
+| macOS (Apple Silicon) | Metal | always enabled |
+| macOS (Intel) | Metal | always enabled |
+| Windows (x86-64) | Vulkan | `vulkan-1.dll` present in System32 |
+| Linux (x86-64) | Vulkan | Vulkan loader + hardware ICD file present |
+
+On Windows and Linux, if no GPU driver is found, the CPU build is installed automatically.
 
 ```{r}
 library(localLLM)
 install_localLLM()
+
+# Force CPU build even when a GPU is detected
+install_localLLM(force_cpu = TRUE)
+
+# Reinstall after adding a GPU driver (re-runs detection)
+install_localLLM(force_reinstall = TRUE)
 ```
 
 ## Your First LLM Query
