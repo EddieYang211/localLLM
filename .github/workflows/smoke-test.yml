@@ -41,6 +41,10 @@ jobs:
             os_name: macOS Apple Silicon
             artifact: liblocalllm_macos_arm64.zip
             lib: lib/liblocalllm.dylib
+          - os: ubuntu-24.04-arm
+            os_name: Linux aarch64
+            artifact: liblocalllm_linux_aarch64.zip
+            lib: lib/liblocalllm.so
 
     runs-on: ${{ matrix.os }}
 
