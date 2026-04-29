@@ -159,6 +159,8 @@ get_lib_path <- function() {
       } else {
         filename <- "liblocalllm_linux_x64.zip"
       }
+    } else if (arch == "aarch64") {
+      filename <- "liblocalllm_linux_aarch64.zip"
     }
   }
 

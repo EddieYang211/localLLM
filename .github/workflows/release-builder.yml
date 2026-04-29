@@ -24,6 +24,10 @@ jobs:
             artifact_name: liblocalllm_linux_x64_vulkan.zip
             lib_name: liblocalllm.so
             vulkan: true
+          - os: ubuntu-24.04-arm
+            os_name: Linux (aarch64)
+            artifact_name: liblocalllm_linux_aarch64.zip
+            lib_name: liblocalllm.so
           - os: windows-latest
             os_name: Windows (CPU)
             artifact_name: localllm_windows_x64.zip
@@ -147,6 +151,10 @@ jobs:
           CMAKE_ARGS="$CMAKE_ARGS -DGGML_VULKAN=ON"
           CMAKE_ARGS="$CMAKE_ARGS -DGGML_NATIVE=OFF -DGGML_AVX512=OFF"
           echo "Linux: Vulkan GPU build"
+
+        elif [[ "$OS_NAME" == "ubuntu-24.04-arm" ]]; then
+          CMAKE_ARGS="$CMAKE_ARGS -DGGML_NATIVE=OFF"
+          echo "Linux: aarch64 CPU build"
 
         else
           CMAKE_ARGS="$CMAKE_ARGS -DLLAMA_ACCELERATE=ON"
