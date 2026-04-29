@@ -12,6 +12,9 @@
 ^src/Makevars$
 ^src/.*\.o$
 ^src/.*\.so$
+^src/.*\.dll$
+^src/.*\.dylib$
+^src/symbols\.rds$
 ^inst/lib$
 ^vignettes/.*\.R$
 ^vignettes/.*\.html$
