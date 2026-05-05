@@ -1,4 +1,4 @@
-# localLLM (development)
+# localLLM 1.3.0
 
 ## New Functions
 
