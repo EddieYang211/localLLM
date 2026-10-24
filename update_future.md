@@ -378,9 +378,26 @@ for (int slot_idx : slots_pending_reassign) {
 
 ---
 
-## Bug Risk: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models (Priority: MEDIUM) — TEST AFTER BACKEND UPGRADE
+## Bug: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models (Priority: HIGH) — CONFIRMED 2026-10-24
 
-**Found**: 2026-10-24, by code reading during the b11869 upgrade analysis. **Not yet reproduced.**
+**Found**: 2026-10-24, by code reading during the b11869 upgrade analysis. **Reproduced the same day** with LFM2-350M (`lfm2`, hybrid), Q4_K_M, on macOS Metal. It happens **identically on b8766 (1.3.0 + PR #7) and on b11869**, so current users are affected.
+
+**Reproduction results** (4 prompts, `temperature = 0`, each result compared with `generate()` on the same prompt):
+
+| Prompt set | `n_seq_max = 4` (3 slots) | `n_seq_max = 5` (4 slots) |
+|---|---|---|
+| 4 identical prompts | 4/4 `[ERROR] Failed to decode prompt tokens` | 4/4 `[ERROR]` |
+| 4 prompts with a 34-token shared system prompt | 1/4 `[ERROR]` (the prompt on the reused slot) | 0/4, all match `generate()` |
+| 4 unrelated prompts (4-token shared template header) | 1/4 `[ERROR]` (the prompt on the reused slot) | 0/4, all match `generate()` |
+| 12 unrelated short prompts | 0/12 (with `max_tokens` 20, 30 and 60) | — |
+
+The backend log for each failure is `init: the tokens of sequence 1 in the input batch have inconsistent sequence positions … X = n_prompt-1 … Y = n_prompt-1`.
+
+There are two distinct failure modes:
+1. **prompt == shared prefix** (identical prompts): explained below, and always fails.
+2. **Reused slot**: this fails only sometimes (1/4 in two sets, 0/12 in another), and the **root cause is not yet identified**. At the moment of the prompt decode, the reused sequence already holds positions up to `n_prompt-1`, which suggests that recurrent state from the shared seq 0 or from the slot's previous occupant was not reset or copied correctly. Debug it by logging slot index, `prefix_len`, `shared_prefix_len` and `llama_memory_seq_pos_max()` before and after `seq_rm`/`seq_cp`. Dense models (SmolLM2, Qwen2.5, Qwen3, Gemma 4) never fail in either mode.
+
+**Original analysis** (failure mode 1):
 
 **Problem**: If a prompt's tokens consist entirely of the shared prefix, `generate_parallel()` copies seq 0's full prefix KV into the slot (`llama_memory_seq_cp(mem, 0, slot.seq_id, -1, -1)`). It then calls a **partial** `llama_memory_seq_rm(mem, slot.seq_id, slot.prefix_len, -1)` to drop the last position, so that the final token can be re-decoded to produce logits. Recurrent/hybrid memory cannot erase part of a sequence's state. The call returns `false` without changing the cache, and **we ignore the return value**.
 
@@ -388,7 +405,7 @@ for (int slot_idx : slots_pending_reassign) {
 
 **Why it fails** (verified in b11869 `src/llama-memory-recurrent.cpp`, `seq_rm`): partial rollback is only possible through per-token snapshots, bounded by the new context param `n_rs_seq`. Its default is 0 and we don't set it. Even with snapshots, rollback is refused when the state cell is shared by several sequences, which it always is right after `seq_cp(0 → slot)`. `llama_memory_hybrid::seq_rm` tries the recurrent part first and returns `false` if that fails.
 
-**Expected symptom** (to confirm): the suffix decode re-submits position `n_prompt - 1`, which still exists in that sequence, so `llama_decode` rejects the batch. That prompt returns `"[ERROR] ..."` instead of text, without crashing R. With identical prompts, every result would be an error.
+**Symptom** (confirmed 2026-10-24): the suffix decode re-submits position `n_prompt - 1`, which still exists in that sequence, so `llama_decode` rejects the batch. That prompt returns `"[ERROR] ..."` instead of text, without crashing R. With identical prompts, every result would be an error.
 
 **Scope — not new with the upgrade**: b8766 (1.3.0) already supports 18 recurrent/hybrid archs. Recurrent: `mamba`, `mamba2`, `rwkv6`, `rwkv6qwen2`, `rwkv7`, `arwkv7`. Hybrid: `jamba`, `falcon-h1`, `plamo2`, `granitehybrid`, `lfm2`, `lfm2moe`, `nemotron_h`, `nemotron_h_moe`, `qwen3next`, `kimi-linear`, `qwen35`, `qwen35moe`. This includes the popular Qwen3.5 family. b11869 adds 6 more hybrid archs: `bailingmoe3`, `kimi-k3`, `glm5-next`, `qwen4exp`, `deepseek4`, `minimax-01`. Current 1.3.0 users may therefore already be affected.
 
@@ -510,7 +527,7 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 3. **`repeat_last_n = -1` now silently means "disabled"**, where it used to mean "whole context" (`a6aa6f545`; values are clamped to ≥0). We never documented -1. Consider rejecting negatives in R.
 4. **Metal flash-attention parameters are now tuned per chip** (`f280b2698` + M3 Max/M4 Pro/M5 tunings). Same-machine reproducibility is unaffected, but cross-chip identical output becomes less likely.
 5. **Bug fixes we inherit**: Metal MoE-reduce fusion race (`098ce526b`), ggml-cpu heap corruption (`2f539596c`), and several KV-cache restore/rollback fixes for MoE/hybrid models.
-6. **Caveat (pre-existing, not caused by the upgrade)**: prefix sharing calls a partial `llama_memory_seq_rm()` that recurrent/hybrid memory refuses, and we ignore the return value. b8766 already loads 18 such archs (incl. Qwen3.5), and b11869 adds 6 more. See **"Bug Risk: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models"** above for the trigger, the test plan, and a candidate fix. Run that test after the upgrade, before advertising new-model support.
+6. **Caveat (pre-existing, not caused by the upgrade)**: prefix sharing calls a partial `llama_memory_seq_rm()` that recurrent/hybrid memory refuses, and we ignore the return value. b8766 already loads 18 such archs (incl. Qwen3.5), and b11869 adds 6 more. See **"Bug: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models"** above (confirmed 2026-10-24) for the trigger, the test plan, and a candidate fix. Run that test after the upgrade, before advertising new-model support.
 
 ### New capabilities
 
