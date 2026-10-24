@@ -538,6 +538,61 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - **GPU cache for MoE experts kept in host memory** (`moe_cache_size`, experimental).
 - The new `llama_batch_ext` API. Migrating is optional for now and should be its own task once the legacy API is formally deprecated.
 
-### Recommended upgrade order
+### Upgrade plan & status — release 1.4.0 (updated 2026-10-24)
 
-1. C bridge fixes 1–4 → 2. CMake fixes 5–7 → 3. local macOS build + A/B regression (SmolLM2-135M, Qwen2.5-0.5B, Qwen3-4B; `generate()` and `generate_parallel()`; seq == par) → 4. CI fixes 8–9 → 5. full release build on all 7 platforms + `smoke-test.yml` → 6. bump `.lib_version` in `install.R`, update NEWS (PR #7 + backend), and submit to CRAN.
+**Decisions**: the next release is **1.4.0** (not 1.3.1). It bundles the backend upgrade, PR #7, the hybrid-model fix and the low-risk fixes below. `smoke-test.yml` is strengthened to run a real model. The 7-platform CI build is tested with a GitHub **pre-release** (`v1.4.0-rcN`). `install.R` keeps pointing at `v1.3.0` until Phase 4, so users are unaffected. All work happens on branch `backend-b11869`.
+
+**Phase 0 — Preparation ✅ DONE**
+- [x] Docs committed on master (`744d42c`, pushed; R-CMD-check + Test Coverage green).
+- [x] Branch `backend-b11869` created; submodule pinned to b11869 (`38e9493`).
+
+**Phase 1 — Local adaptation + regression ✅ DONE** (`d9f0bc7`, `5770161`)
+- [x] C bridge fixes 1–4 and CMake fixes 5–7, plus one found while building: the generated `ggml-version.h` include dir, replacing the `GGML_VERSION`/`GGML_COMMIT` `-D` defines.
+- [x] Builds on macOS arm64 (Metal) without warnings; same 37 `localllm_*` exports. The dylib grew 7.0 → 13.5 MB, mostly the embedded Metal library (0.6 → 5.2 MB).
+- [x] A/B against b8766 + PR #7 at temp 0: SmolLM2-135M, Qwen2.5-0.5B, Qwen3-4B and Gemma-4-E2B give **byte-identical** outputs and identical prompt tokens, seq == par, no leaks or empties. Qwen3-4B parallel 32.9 → 25.4 s.
+- [x] `load_mode` mapping verified for all 4 `use_mmap`/`use_mlock` combinations.
+- [x] Hybrid-model bug reproduced (pre-existing, see "Bug: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models").
+- [ ] *Optional*: exercise the Gemma 4 pre-closed-thinking strip. E2B's template does not pre-close, so it needs a model that does, e.g. 26B-A4B.
+
+**Phase 2 — Bug fixes ⏭ NEXT**
+- [ ] 2.1 **Hybrid prefix sharing (HIGH)**:
+  - [ ] (a) Instrument `localllm_generate_parallel()` (slot index, `prefix_len`, `shared_prefix_len`, `llama_memory_seq_pos_max()` around every `seq_rm`/`seq_cp`) and find the root cause of failure mode 2 (reused slot).
+  - [ ] (b) Fix both modes. Choose between a per-slot fallback (check the `seq_rm` return value, then do a full `seq_rm` + decode the whole prompt) and disabling prefix sharing for `llama_model_is_recurrent() || llama_model_is_hybrid()`.
+  - [ ] (c) Re-test LFM2-350M (identical / shared-prefix / unrelated / 12 prompts; `n_seq_max` 4 and 5) plus a second hybrid model (a small Qwen3.5), and confirm the dense-model regression is unchanged.
+- [ ] 2.2 **Small fixes**:
+  - [ ] Add `export(model_metadata)` to the hand-written `NAMESPACE`.
+  - [ ] `path.expand()` the model path in `model_load()`.
+  - [ ] Reject negative `repeat_last_n` in `generate()`/`generate_parallel()`/`quick_llama()`.
+  - [ ] Validate `use_mmap`/`use_mlock` as non-NA logical scalars (NA currently reaches C as TRUE).
+- [ ] 2.3 testthat tests for the R-side validations (no backend or network needed, so CRAN-safe).
+- [ ] 2.4 Rebuild and re-run the Phase 1 regression; commit.
+
+**Phase 3 — CI + 7-platform build**
+- [ ] 3.1 `release-builder.yml`: add `spirv-headers` to the Linux Vulkan apt install. `scripts/check_symbols.sh`: `common/libcommon.a` → `libllama-common.a`.
+- [ ] 3.2 Strengthen `smoke-test.yml`: after `dyn.load`, install the R package from the checkout, point it at the downloaded backend, download SmolLM2-135M (cached), and run `tokenize` + `generate` + `generate_parallel` (`n_gpu_layers = 0` on runners without a GPU). Assert non-empty output, no `[ERROR]`, and seq == par.
+- [ ] 3.3 Push the branch; publish pre-release `v1.4.0-rc1` → `release-builder` builds the 7 artifacts → run `smoke-test.yml` with `v1.4.0-rc1`. Iterate with rc2, … until all 7 pass. Check the zip sizes.
+
+**Phase 4 — Release**
+- [ ] 4.1 `install.R`: `.lib_version <- "1.4.0"`, `.base_url` → `v1.4.0`.
+- [ ] 4.2 `DESCRIPTION`: Version 1.4.0, Date.
+- [ ] 4.3 `NEWS.md` 1.4.0 should cover:
+  - PR #7 special-token fix (credit t-davidson);
+  - the backend upgrade b8766 → b11869 and the new architectures;
+  - the hybrid-model fix and the small fixes;
+  - behaviour notes: same-seed outputs differ from 1.3.0 because of PR #7, temp 0 now uses the greedy sampler, negative `repeat_last_n` is rejected, and the `load_mode` AUTO fallback.
+- [ ] 4.4 Vignettes:
+  - add the `reproducible-output.Rmd` disclaimer (CPU vs GPU, cross-chip Metal tuning, MoE);
+  - update model-support notes.
+- [ ] 4.5 Merge `backend-b11869` → master.
+- [ ] 4.6 Run `R CMD build` + `R CMD check --as-cran` and update `cran-comments.md`. Go through the checklist in `CRAN_POLICY_NOTES.md`.
+- [ ] 4.7 Publish the final GitHub release `v1.4.0` → CI builds the assets → `smoke-test.yml` with `v1.4.0`. This must happen **before** the CRAN submission.
+- [ ] 4.8 Submit to CRAN.
+
+**Phase 5 — After release**
+- [ ] Verify a fresh install: CRAN package → `install_localLLM()` downloads `v1.4.0` → generate.
+- [ ] Note on issue #6 / PR #7 that the fix has shipped.
+- [ ] Follow-ups for later releases:
+  - `llama_batch_ext` migration;
+  - use the Jinja prompt parts (`is_input`) so special tokens in user text are not parsed (PR #7 trade-off);
+  - `next_batch` per-token allocation and dead-code cleanup;
+  - roadmap items 1–4.
