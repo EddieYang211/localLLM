@@ -141,7 +141,10 @@ static std::vector<llama_token> helper_tokenize(const llama_model* model, const 
     const struct llama_vocab* vocab = llama_model_get_vocab(model); 
     int max_tokens = text.size() + 2; 
     std::vector<llama_token> tokens(max_tokens); 
-    int32_t n = llama_tokenize(vocab, text.c_str(), text.size(), tokens.data(), max_tokens, add_special, false); 
+    // parse_special = true so that chat-template markers in the prompt (e.g. <|im_start|>,
+    // <|eot_id|>, <start_of_turn>) map to their special token IDs instead of being split
+    // into plain-text pieces. This matches how llama.cpp tokenizes templated prompts.
+    int32_t n = llama_tokenize(vocab, text.c_str(), text.size(), tokens.data(), max_tokens, add_special, true);
     if (n < 0) { 
         throw std::runtime_error("Tokenization failed in helper."); 
     } 
