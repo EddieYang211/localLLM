@@ -23,13 +23,30 @@ Getting started requires two simple steps: installing the R package and download
 
 ### Step 1: Install the R package
 
+For current R releases, the standard CRAN installation is recommended:
+
 ```{r}
-# Install from CRAN
 install.packages("localLLM")
+packageVersion("localLLM")
 ```
+
+On older R releases, CRAN may serve an older pre-built binary package even
+when a newer source release is available. If `packageVersion("localLLM")`
+is older than the version shown on CRAN, install from source:
+
+```{r}
+options(download.file.method = "libcurl")
+install.packages("localLLM", type = "source")
+packageVersion("localLLM")
+```
+
 ### Step 2: Install the backend library
 
-The `install_localLLM()` function automatically detects your platform and downloads the appropriate pre-compiled library. GPU acceleration is selected automatically when a compatible GPU driver is detected:
+The `install_localLLM()` function installs the separate backend library used by
+the R package. It does not upgrade the R package itself. The function
+automatically detects your platform and downloads the appropriate pre-compiled
+library. GPU acceleration is selected automatically when a compatible GPU driver
+is detected:
 
 | Platform | GPU backend | Detection method |
 |----------|-------------|-----------------|

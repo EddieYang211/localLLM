@@ -146,6 +146,8 @@ std::vector<llama_token> common_sampler_sample_and_accept_n(
 
 **API stability**: LOW - depends on `common/speculative.h` (unstable internal API)
 
+**Update (2026-09-13)**: Upstream llama.cpp (b10948) has landed a different, likely lower-effort path to this feature: native **MTP (Multi-Token Prediction)** speculative decoding, built as a first-class framework (`llm_graph_input_mtp`, dedicated per-model support) rather than the generic `common/speculative.h` draft-model API described above. MTP is a small auxiliary prediction head trained directly into the model checkpoint — no separate draft model needed. Currently supported for DeepSeek V3.2/V4, GLM-4.5-Air/4.7-Flash/5.2, Qwen3-Next/3.5, Kimi-K3, MiMo V2, Hy3, Nemotron, and Gemma4. Re-evaluate effort estimate against this path when the backend is upgraded — but note MTP only benefits large MoE models that ship MTP weights; it does **not** apply to the small dense models we currently document (Gemma-3-4B, Llama-3.2-3B), so the generic `common/speculative.h` approach may still be needed for those. See the version-gap investigation notes at the end of this file for full detail.
+
 ---
 
 ## 5. Multimodal / Vision (Priority: LOW)
@@ -376,6 +378,31 @@ for (int slot_idx : slots_pending_reassign) {
 
 ---
 
+## Bug Risk: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models (Priority: MEDIUM) — TEST AFTER BACKEND UPGRADE
+
+**Found**: 2026-10-24, by code reading during the b11869 upgrade analysis. **Not yet reproduced.**
+
+**Problem**: If a prompt's tokens consist entirely of the shared prefix, `generate_parallel()` copies seq 0's full prefix KV into the slot (`llama_memory_seq_cp(mem, 0, slot.seq_id, -1, -1)`). It then calls a **partial** `llama_memory_seq_rm(mem, slot.seq_id, slot.prefix_len, -1)` to drop the last position, so that the final token can be re-decoded to produce logits. Recurrent/hybrid memory cannot erase part of a sequence's state. The call returns `false` without changing the cache, and **we ignore the return value**.
+
+**Trigger**: prefix sharing is active and some prompt == the shared prefix. Most commonly this means **all prompts are identical**, e.g. `generate_parallel(ctx, rep(prompt, 5))` for repeated sampling or intercoder-reliability runs. It also happens when one prompt is a token-prefix of every other prompt.
+
+**Why it fails** (verified in b11869 `src/llama-memory-recurrent.cpp`, `seq_rm`): partial rollback is only possible through per-token snapshots, bounded by the new context param `n_rs_seq`. Its default is 0 and we don't set it. Even with snapshots, rollback is refused when the state cell is shared by several sequences, which it always is right after `seq_cp(0 → slot)`. `llama_memory_hybrid::seq_rm` tries the recurrent part first and returns `false` if that fails.
+
+**Expected symptom** (to confirm): the suffix decode re-submits position `n_prompt - 1`, which still exists in that sequence, so `llama_decode` rejects the batch. That prompt returns `"[ERROR] ..."` instead of text, without crashing R. With identical prompts, every result would be an error.
+
+**Scope — not new with the upgrade**: b8766 (1.3.0) already supports 18 recurrent/hybrid archs. Recurrent: `mamba`, `mamba2`, `rwkv6`, `rwkv6qwen2`, `rwkv7`, `arwkv7`. Hybrid: `jamba`, `falcon-h1`, `plamo2`, `granitehybrid`, `lfm2`, `lfm2moe`, `nemotron_h`, `nemotron_h_moe`, `qwen3next`, `kimi-linear`, `qwen35`, `qwen35moe`. This includes the popular Qwen3.5 family. b11869 adds 6 more hybrid archs: `bailingmoe3`, `kimi-k3`, `glm5-next`, `qwen4exp`, `deepseek4`, `minimax-01`. Current 1.3.0 users may therefore already be affected.
+
+**Test plan** (after the upgrade, before advertising new-model support; can also be run on 1.3.0 now):
+1. Load a small hybrid model (e.g. LFM2-350M, or a small Qwen3.5 / Granite-4.0-H GGUF), plus a dense model as a control.
+2. Run `generate_parallel()` with (a) 4 identical prompts, (b) 4 prompts with a long shared prefix but different endings, (c) 4 unrelated prompts.
+3. At `temperature = 0`, compare each result with `generate()` on the same prompt. Expect seq == par, and watch for `"[ERROR]"` or empty strings.
+
+**Candidate fix**: check the return value of the partial `llama_memory_seq_rm()`. On `false`, fall back to `llama_memory_seq_rm(mem, slot.seq_id, 0, -1)` (full removal always works) and decode that slot's full prompt without prefix sharing. Simpler alternative: skip prefix sharing when `llama_model_is_recurrent(model) || llama_model_is_hybrid(model)`; both functions exist in b8766 and b11869.
+
+**Files to change**: `backend/llama.cpp/localllm_capi.cpp` — `localllm_generate_parallel()`: slot assignment (~lines 892–900) and the `seq_cp`/`seq_rm` block (~lines 940–948).
+
+---
+
 ## Code Quality: Dead Code in `generate_parallel()` (Priority: LOW)
 
 **Found**: 2026-04-16
@@ -392,3 +419,108 @@ int pos = slot.n_past + slot.n_decoded;  // never used
 Both branches of the following `if/else` (lines 1034 and 1038) overwrite `pos` before it is used. The initial calculation is dead code. Safe to remove.
 
 **No functional impact** — these are pure cleanup items.
+
+---
+
+## Investigation: llama.cpp Backend Version Gap & Reproducibility (2026-09-13)
+
+**Method**: Compared our backend commit (b8766, 2026-04-12) against the latest upstream tag (b10948, 2026-09-13) using the `backend/llama.cpp` submodule's local git history directly (`git log b8766..b10948`), instead of the GitHub API, to avoid the 60 req/hour anonymous rate limit.
+
+### Version gap
+
+- **2182 commits, ~5 months, 2794 files changed, +580,011 / -187,333 lines.** Not a routine bump — should be scoped as its own project, not folded into an unrelated change.
+- The core stable API our C bridge depends on is **unchanged**: `llama_batch_init` and `llama_decode` have byte-identical signatures in `include/llama.h` between b8766 and b10948, and `llama_memory_seq_cp`/`seq_rm`/`seq_add` (used for prefix sharing in `generate_parallel()`) are also unchanged. Upgrading carries low risk of breaking our `localllm_capi.cpp` slot logic specifically.
+- The one commit that looked relevant, `server: abstract llama_memory calls to common_memory (#26221)`, only touches `common/common.cpp`, `common/common.h`, and `tools/server/server-context.cpp` — internal refactor of the `llama-server` binary we don't link against. Not relevant to us.
+- `llama_set_warmup()` was deprecated (#24009) — not used anywhere in our codebase, no impact.
+- `--mmap`/`--mlock`/`--dio` CLI flags were deprecated in favor of a unified `--load-mode`, but this is at the `common/arg.cpp` CLI-parsing layer. Our `localllm_capi.cpp` sets `llama_model_params.use_mmap`/`use_mlock` struct fields directly (not via CLI args), which should be unaffected — but re-verify at upgrade time. **Correction (2026-10-24)**: wrong — by b11869 the `use_mmap`/`use_mlock` struct fields themselves are removed (see the b11869 analysis below).
+
+### Model / quantization coverage gap (the real reason to upgrade)
+
+New model architectures merged since b8766 that our current backend **cannot load**: DeepSeek V3.2/V4 (new sparse attention, "DSA"), GLM-4.5-Air/4.7-Flash/5.2, Kimi-K3, MiniMax-M3, Qwen3-Next/Qwen3.8-Flash-Next, BailingMoE3, EXAONE 4.5, Tencent Hy3/Hy_v4, NVIDIA Nemotron-3-Puzzle-75B, MiMo V2, and others. Also new **NVFP4** quantization support (NVIDIA's 4-bit float format with block-wise FP8 microscaling) — GGUF files exported in NVFP4 will fail to load on b8766 regardless of architecture. Model-architecture coverage has historically been the primary driver for backend bumps in this project (the b7825→b8664 bump was specifically for "18 new architectures" per NEWS.md) — this is the strongest concrete justification for the next upgrade.
+
+**Correction (2026-10-24)**: overstated. b8766 already has arch entries for `qwen3next`, `mimo2`, `glm4moe` (GLM-4.5-Air / 4.7), `exaone4`, `nemotron_h` and `bailingmoe2`, and `GGML_TYPE_NVFP4` (type 40) already exists in b8766's `ggml.h`; only the `GGML_FTYPE_MOSTLY_NVFP4` file type is new. The verified list of new arch names is in the b11869 analysis below.
+
+### Multi-GPU gap (candidate new roadmap item, not yet numbered above)
+
+Per current upstream `docs/multi-gpu.md`, llama.cpp exposes three `--split-mode` options: `layer` (pipeline parallel across GPUs, default, tolerant of slow interconnect), `row` (deprecated), and `tensor` (true tensor parallelism with cross-GPU AllReduce, EXPERIMENTAL, best on multi-NVIDIA-GPU + CUDA + fast interconnect). **Our `model_load()` exposes none of `tensor_split` / `split_mode` / `main_gpu` — only `n_gpu_layers`.** A user with multiple GPUs cannot split a model across them through our package today; behavior is whatever the backend's internal default does. If we ever get reports of multi-GPU workstation users, exposing `split_mode`/`tensor_split` (starting with the more mature `layer` mode, treating `tensor` as experimental/opt-in) would be a natural, low-risk addition — it only requires passing two more params down through the existing `model_load()` C bridge, no generation-loop changes.
+
+### Reproducibility findings
+
+Investigated whether "same seed + same backend binary + same hardware + same `n_threads`/GPU choice" guarantees bit-identical output (prompted by comparing to vLLM's `VLLM_ENABLE_V1_MULTIPROCESSING=0` reproducibility knob — not a direct analogue, since llama.cpp's core library has no async multi-process scheduler; its non-determinism sources are purely numerical/kernel-level).
+
+- **CPU**: `ggml-cpu` core ops use static, thread-id-indexed strided loops (`for (i = ith; i < n; i += nth)`), i.e. deterministic work partitioning given a fixed `n_threads` — not a race-based reduction. No `atomic*`-based float accumulation found in core CPU ops. CPU-only inference should be reproducible in practice given fixed seed + fixed `n_threads`.
+- **CUDA**: Confirmed current `ggml/src/ggml-cuda/ggml-cuda.cu` still calls `cublasGemmEx(..., CUBLAS_GEMM_DEFAULT_TENSOR_OP)` for GEMM. NVIDIA's own cuBLAS documentation states results are **not guaranteed to be bit-reproducible run-to-run** — this has been a known, documented llama.cpp caveat since 2023 (original fix was `GGML_CUDA_MAX_STREAMS=1`; the macro still exists in `ggml/src/ggml-cuda/common.cuh` but the warning is no longer surfaced in current README/docs). No widespread `atomicAdd` usage found in core CUDA matmul/flash-attention kernels (only in `count-equal.cu`), so this risk is specific to cuBLAS's own internal algorithm selection, not our/ggml's hand-written kernels.
+- **MoE routing**: `opencl: make the MoE expert scatter deterministic (#26464)` (2026-08-19) confirms MoE expert routing/scatter had at least one non-determinism bug on the OpenCL backend; unclear whether analogous issues exist or have been fixed on CUDA/Vulkan. Only relevant to MoE models — none of our currently-documented example models (Gemma-3-4B, Llama-3.2-3B) are MoE.
+- **`generate_parallel()` caveat**: batch composition (how many/which sequences are decoded together) can route to different GEMM kernel/tiling code paths purely based on batch shape — a source of variance orthogonal to seed/hardware/thread-count, not evaluated here.
+- **Empirical spot-check** (2026-09-13, localLLM 1.3.0, Apple M3 Pro / Metal, `n_gpu_layers = -1`, Qwen3-4B-Thinking Q8_0, `~/.llamabarn/qwen3-4b-thinking-2507-q8_0.gguf`): 3/3 identical runs at `temperature=0, seed=42`, and 3/3 identical runs at `temperature=0.8, seed=42`. Small sample size; Metal only (does not confirm/refute the CUDA cuBLAS concern above, since Metal doesn't go through cuBLAS); dense model only (does not exercise the MoE routing risk above).
+
+**Action item**: Consider adding a disclaimer to `vignettes/reproducible-output.Rmd` — the `identical()` guarantee is well-grounded on CPU (static thread partitioning), but on GPU (especially CUDA) it is better described as "holds in practice, not a guaranteed property," and MoE models carry an additional routing-determinism risk not present in the dense models currently used in the vignette's examples.
+
+---
+
+## Backend Upgrade Analysis: b8766 → b11869 (2026-10-24)
+
+**Method**: Checked out upstream tag **b11869** (2026-10-24) in the `backend/llama.cpp` submodule, 3103 commits after b8766. Built an inventory of every llama.cpp symbol `localllm_capi.cpp` uses (44 `llama_*` functions, 12 `common_*` symbols, 4 `ggml_*` symbols), then diffed each declaration, every struct field we set, the default param values, and our `CMakeLists.txt.custom` / CI against the new tree. **No code has been changed yet.** The submodule is checked out at b11869 locally, but the pointer is not committed.
+
+**Bottom line**: the core `llama.h` API we use is unchanged. The breakage is in `common/` and in the build system. All required C-bridge changes are mechanical adaptations that preserve behaviour. The R ⇄ C-bridge ABI is unaffected, so the R package needs only a version bump. Estimated effort is a few dozen lines, and the main risk is CMake/Metal across the 7 release platforms.
+
+### Compile/build breaks
+
+**C bridge (`localllm_capi.cpp`)**
+
+| # | Upstream change | Our usage | Fix |
+|---|---|---|---|
+| 1 | `common_batch_add()` removed (`60e9cf7a7`, 2026-09-30; upstream moved its own code to the new `llama_batch_ext` API) | 5 call sites: `generate()` prompt + per-token batch, `generate_parallel()` shared prefix, suffix, and per-step gen batch | Add a local copy of the old ~10-line helper (it only fills the `llama_batch` arrays). The legacy `llama_batch_init`/`llama_decode(llama_batch)` path is still native and not marked deprecated, and the `llama_batch` struct layout is byte-identical, so our aggregate-initialised batch views stay valid |
+| 2 | `llama_model_params.use_mmap`/`use_mlock`/`use_direct_io` removed in favour of `enum llama_load_mode load_mode` (`e6dd0e29a`); the new default is `LLAMA_LOAD_MODE_AUTO` | `localllm_model_load()` and `localllm_model_load_safe()` (6 lines) | Map the two R booleans onto the enum (TRUE/FALSE→`AUTO` or `MMAP`, TRUE/TRUE→`MMAP_MLOCK`, FALSE/TRUE→`MLOCK`, FALSE/FALSE→`NONE`). `AUTO` = mmap, except it falls back to no-mmap on devices without mmap support (e.g. some iGPUs) |
+| 3 | `common_chat_params.prompt` changed from `std::string` to `common_chat_prompt` (`ff026f8c0`, 2026-10-14) | Jinja fallback in `localllm_apply_chat_template()` | `params.prompt.str()` |
+| 4 | `common_chat_params.thinking_end_tag` (string) → `thinking_end_tags` (vector) | Gemma 4 pre-closed-thinking strip | Loop over the vector. Gemma 4's parser still reports `{"<channel|>"}`, so behaviour is unchanged |
+
+**Build (`CMakeLists.txt.custom`)**
+
+| # | Upstream change | Impact |
+|---|---|---|
+| 5 | Library target `common` renamed `llama-common` (`build_info` → `llama-common-base`) | Our link line, the macOS/Linux/Windows whole-archive flags, and `check_static_library_completeness` all reference `common`, so CMake configure fails |
+| 6 | `vendor/` now has its own CMakeLists; `llama-common` links `vendor::nlohmann` and `vendor::sheredom` | Replace `add_subdirectory(vendor/cpp-httplib)` with `add_subdirectory(vendor)`. Optionally set `LLAMA_SUBPROCESS=OFF`, since it is only needed by server tools |
+| 7 | `ggml-metal.metal` split into 41 `kernels/*.metal` files; new `ggml-metal-fusion.cpp` and `ggml-metal-tuning.cpp` | Our hand-written Metal source list and custom embed block break. Recommended: drop them and rely on upstream's `ggml-metal` target, which already embeds the library when `GGML_METAL_EMBED_LIBRARY=ON`. **Highest-risk item**: verify on both arm64 and x86_64 macOS |
+
+**CI**
+
+| # | Change |
+|---|---|
+| 8 | Linux Vulkan: `find_package(SPIRV-Headers CONFIG REQUIRED)` was added (`a6d6183db`), so add `spirv-headers` to the apt install. Windows `choco install vulkan-sdk` presumably ships it (unverified) |
+| 9 | `scripts/check_symbols.sh:72` hardcodes `common/libcommon.a` (now `libllama-common.a`) |
+
+### Verified unchanged
+
+- All 44 `llama.h` functions we call: identical declarations (tokenize/detokenize, decode, batch init/free, `llama_memory_*` incl. `seq_cp`/`seq_rm`, chat template, metadata, vocab queries).
+- `llama_batch` struct layout, and the `llama_context_params` fields we set (`n_ctx`, `n_threads`, `n_threads_batch`, `n_seq_max`) and their defaults.
+- `common_sampler_init/sample/accept/free`, `common_params_sampling` fields we set, the default sampler chain order, and `common_token_to_piece`.
+- `common_chat_templates_init` signature, `common_chat_msg.role/content`, `enable_thinking = true` default, and leading-BOS stripping in the Jinja path.
+- C++17, and all CMake options our CI passes (`GGML_NATIVE`, `GGML_AVX512`, `GGML_METAL_EMBED_LIBRARY`, `GGML_VULKAN`, …).
+- Batch validation: the only new `llama_batch_allocr::init` errors concern embedding/state inputs. Our batches are token-only with strictly increasing positions per sequence, so none apply.
+- New context param `n_outputs_max_per_seq` (default 1) is only enforced for backend sampling. We sample on CPU via `common_sampler` (`backend_sampling = false`), so it does not apply.
+- Roadmap APIs: `llama_set_embeddings`, `llama_get_embeddings_seq/ith`, `llama_pooling_type`, `llama_sampler_init_grammar`, `common_grammar`, so items 1–2 are unaffected.
+
+### Functional impact on `generate()` / `generate_parallel()`
+
+None of fixes 1–4 changes what our code does: they rename or re-wrap the same operations. Slot management, prefix sharing (`seq_cp` + partial `seq_rm`), stop-string handling, and batch splitting are untouched. User-visible differences come only from **upstream internals**:
+
+1. **Outputs differ from 1.3.0 for the same seed.** This is combined with PR #7 (special-token parsing), so NEWS and `reproducible-output.Rmd` must say so.
+2. **`temperature = 0` now uses the greedy sampler directly** (`d0b490f25`) instead of temp(≤0 keeps the max logit) + dist. Equivalent in practice and faster; tie-breaking may differ in rare cases.
+3. **`repeat_last_n = -1` now silently means "disabled"**, where it used to mean "whole context" (`a6aa6f545`; values are clamped to ≥0). We never documented -1. Consider rejecting negatives in R.
+4. **Metal flash-attention parameters are now tuned per chip** (`f280b2698` + M3 Max/M4 Pro/M5 tunings). Same-machine reproducibility is unaffected, but cross-chip identical output becomes less likely.
+5. **Bug fixes we inherit**: Metal MoE-reduce fusion race (`098ce526b`), ggml-cpu heap corruption (`2f539596c`), and several KV-cache restore/rollback fixes for MoE/hybrid models.
+6. **Caveat (pre-existing, not caused by the upgrade)**: prefix sharing calls a partial `llama_memory_seq_rm()` that recurrent/hybrid memory refuses, and we ignore the return value. b8766 already loads 18 such archs (incl. Qwen3.5), and b11869 adds 6 more. See **"Bug Risk: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models"** above for the trigger, the test plan, and a candidate fix. Run that test after the upgrade, before advertising new-model support.
+
+### New capabilities
+
+- **38 new architecture names** (126 → 164), e.g. `deepseek32`, `deepseek4`, `glm5-next`, `kimi-k3`, `minimax-m3`, `minimax-01`, `qwen4exp`, `cohere2moe`, `bailingmoe3`, `granite_swa`, `graniteswitch`, `hy_v3`, `hy_v4`, `gemma-embedding2`, `hunyuan_vl`, plus TTS models (`qwen3tts`, `pockettts`) that are irrelevant to us. New quant type `Q2_0`.
+- **Prompt parts with an `is_input` flag** (`ff026f8c0`): the Jinja engine now marks which spans of the rendered prompt came from user input. This is the upstream mechanism to resolve PR #7's trade-off (literal `<|im_end|>` inside user documents). Upstream itself still flattens it with `.str()`. The C-API path (`llama_chat_apply_template`) returns a plain string and carries no part info.
+- **MTP speculative decoding** (`load_mtp`, `LLAMA_CONTEXT_TYPE_MTP`), relevant to roadmap item 4.
+- **Reasoning budget sampler** improvements (multiple end tags, injected message, runtime control), relevant to roadmap item 3.
+- **GPU cache for MoE experts kept in host memory** (`moe_cache_size`, experimental).
+- The new `llama_batch_ext` API. Migrating is optional for now and should be its own task once the legacy API is formally deprecated.
+
+### Recommended upgrade order
+
+1. C bridge fixes 1–4 → 2. CMake fixes 5–7 → 3. local macOS build + A/B regression (SmolLM2-135M, Qwen2.5-0.5B, Qwen3-4B; `generate()` and `generate_parallel()`; seq == par) → 4. CI fixes 8–9 → 5. full release build on all 7 platforms + `smoke-test.yml` → 6. bump `.lib_version` in `install.R`, update NEWS (PR #7 + backend), and submit to CRAN.
