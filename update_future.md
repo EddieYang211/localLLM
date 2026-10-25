@@ -568,6 +568,10 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
   - [x] (c) Verified on 12 scenarios × 6 models:
     - LFM2-350M and Qwen3.5-0.8B: errors went from 25/37 to 0/37, and all outputs equal `generate()`.
     - The 4 dense models: byte-identical to before the fix (39/39 each), and equal to `generate()`.
+    - ag_news benchmark (adapted `benchmark_parallel.R`: 100 prompts, shared system prompt, `n_seq_max = 10`, so 11×9 + one 1-prompt leftover batch):
+      - Fix vs pre-fix: `generate_parallel()` output identical 100/100 and timing unchanged (Gemma-4-E2B 28.0 → 28.0 s; Qwen3-4B 44.8 → 46.0 s, within noise).
+      - Backend upgrade b8766 → b11869: parallel is **~35% faster** (Gemma-4-E2B 43.9 → 28.0 s, speedup over sequential 2.10× → 3.22×; Qwen3-4B 68.3 → 44.8 s, 2.86× → 4.37×), and sequential is unchanged.
+      - par == seq is 100/100 on b11869. On b8766, one Gemma-4-E2B prompt diverged in parallel mode (batch-composition numerics).
 - [ ] 2.2 **Small fixes**:
   - [ ] Add `export(model_metadata)` to the hand-written `NAMESPACE`.
   - [ ] `path.expand()` the model path in `model_load()`.
