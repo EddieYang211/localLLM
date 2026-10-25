@@ -599,6 +599,18 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
   3. Wait for the 7 artifacts to be uploaded. Then Actions → *Smoke Test — All Platforms* → *Run workflow* with **"Use workflow from: `backend-b11869`"** (master still has the old smoke test) and version `v1.4.0-rc1`.
   4. On failure: fix on the branch, then publish `v1.4.0-rc2`, and so on. Check the zip sizes (macOS dylib 13.5 MB). Delete the rc pre-releases after the final release.
 
+**Open issues found in the pre-push review (2026-10-24)**
+- [ ] **A. macOS CPU path built without upstream CPU flags — DECISION NEEDED.** On Apple, `CMakeLists.txt.custom` compiles its own copies of `ggml-cpu.c`, `ggml-cpu.cpp` and `ggml-blas.cpp` into `localllm`. These copies lack the ggml-cpu target's `-mcpu=native+dotprod+i8mm` and `-DGGML_USE_CPU_REPACK`, and they are the ones linked (`ggml_graph_compute`, `ggml_cpu_has_*`), so CPU weight repacking is off. This is pre-existing (b8766 too). Linux/Windows do not compile these copies. Experiment with the 3 sources dropped (use the upstream archives), CPU only, 4 threads, M3 Pro:
+  - Gemma-4-E2B Q4_0: 39.3 → **50.7 tok/s (+29%)**, output identical.
+  - Qwen2.5-0.5B Q4_K_M: 168 → 174 tok/s, **output differs**.
+  - Qwen3-4B Q8_0: 22.8 → 22.6 tok/s, **output differs**.
+  - Metal outputs are unchanged (6/6 seq and par on two models), and the smoke test passes.
+  - Dropping the copies matches upstream llama.cpp's own CPU results, and it would change macOS CPU-only outputs vs 1.3.0 for some quant types.
+- [ ] **B. macOS release builds use `GGML_NATIVE` (default ON).** Linux/Windows set `GGML_NATIVE=OFF`. The CPU kernels are tuned to whatever CPU the GitHub runner has, so a runner upgrade (e.g. to an M2+ with i8mm, or an Intel runner with AVX-512) could produce binaries that crash with an illegal instruction on older Macs. This is pre-existing. Consider explicit `-DGGML_NATIVE=OFF` plus baseline CPU flags for macOS.
+- [ ] C. Verify in rc1: the duplicated ggml core sources (`ggml.c`, `gguf.cpp`, …) still link on Linux/Windows against b11869's `libggml-base.a` (they did on b8766); Windows Vulkan finds SPIRV-Headers via `VULKAN_SDK`; zip sizes.
+- [ ] D. Docs (Phase 4): `tokenize()` should say that special-token text such as `<|im_start|>` is now parsed as special tokens (PR #7). The example log in `reproducible-output.Rmd` shows `package_version` 1.3.0 (cosmetic).
+- [ ] E. Untested: the Gemma 4 pre-closed-thinking strip (E2B's template does not pre-close).
+
 **Phase 4 — Release**
 - [ ] 4.1 `install.R`: `.lib_version <- "1.4.0"`, `.base_url` → `v1.4.0`.
 - [ ] 4.2 `DESCRIPTION`: Version 1.4.0, Date.
@@ -623,5 +635,6 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
   - use the Jinja prompt parts (`is_input`) so special tokens in user text are not parsed (PR #7 trade-off);
   - `next_batch` per-token allocation and dead-code cleanup (incl. the now-unreachable `need_prompt_logit`/`priming` path);
   - silence the exit-time context-free logs at `verbosity = 0`;
+  - stale `custom_files/localllm_capi.cpp.backup`, the duplicate `#include <filesystem>`, and the dead `check_static_library_completeness()` / pure-glue branch in `CMakeLists.txt.custom`;
   - `localLLM/src/liblocalllm.dylib` (a backend binary) is tracked in git. It is excluded from the tarball by `.Rbuildignore`, but it should be removed from the repo;
   - roadmap items 1–4.
