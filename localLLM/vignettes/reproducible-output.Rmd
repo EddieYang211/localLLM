@@ -161,7 +161,7 @@ Duration: 289.9 seconds
 Events:
 - [2025-01-15 14:30:22 EST] document_start
     {
-      "package_version": "1.3.0",
+      "package_version": "1.4.0",
       "r_version": "4.4.1",
       "platform": "aarch64-apple-darwin22.6.0",
       "os": "Darwin",
@@ -271,6 +271,40 @@ cached <- list_cached_models()
 print(cached[, c("name", "size_bytes", "modified")])
 ```
 
+### 6. Record the Package and Backend Version
+
+Outputs depend on the software version, not only on the prompt and seed. Upgrading
+localLLM or its backend can change results. For example, localLLM 1.4.0 fixed how
+chat-template markers such as `<|im_start|>` are tokenized, so the same prompt and seed
+can produce different text than in 1.3.0. `document_start()` records the package version
+automatically; you can also report it directly:
+
+```{r}
+packageVersion("localLLM")
+```
+
+## What Reproducibility Covers
+
+Repeated runs give identical output when all of the following are the same:
+
+- the model file,
+- the localLLM package and backend version,
+- the hardware, the GPU backend, and the number of threads,
+- the generation parameters and the seed.
+
+A few caveats:
+
+- **CPU**: llama.cpp splits work across threads in a fixed way, so identical output on the
+  same machine with the same `n_threads` is expected.
+- **GPU (Metal, Vulkan)**: repeated runs on the same machine were identical in our tests,
+  but bit-for-bit identity is not a formal guarantee of the GPU libraries.
+- **Different machines**: results can differ across hardware. For example, llama.cpp tunes
+  some Metal kernels per Apple chip, and CPU builds use different instruction sets.
+- **Mixture-of-experts (MoE) models** have an extra source of variation in expert routing.
+
+When exact replication matters, share the model file (or its hash), the package version,
+and your hardware profile together with the output hashes.
+
 ## Summary
 
 | Feature | Function/Parameter | Purpose |
@@ -280,5 +314,7 @@ print(cached[, c("name", "size_bytes", "modified")])
 | Hash verification | `attr(result, "hashes")` | Verify identical configurations |
 | Audit trails | `document_start()`/`document_end()` | Complete session logging |
 | Hardware info | `hardware_profile()` | Record execution environment |
+| Version info | `packageVersion("localLLM")` | Record the exact software version |
 
-With these tools, your LLM-based analyses become fully reproducible and verifiable.
+With these tools, your LLM-based analyses can be reproduced and verified on the same
+software and hardware.

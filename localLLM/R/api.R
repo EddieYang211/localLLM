@@ -223,6 +223,11 @@ context_create <- function(model, n_ctx = 2048L, n_threads = 4L, n_seq_max = 1L,
 #' This is the first step in text generation, as models work with tokens rather than raw text.
 #' Different models may use different tokenization schemes (BPE, SentencePiece, etc.).
 #'
+#' Special-token text is parsed: chat-template markers such as \code{<|im_start|>} map to
+#' their special token IDs (since localLLM 1.4.0), which is what chat-templated prompts
+#' need. This also applies to such strings inside your own data, where they act as
+#' control tokens.
+#'
 #' @param model A model object created with \code{\link{model_load}}
 #' @param text Character string or vector to tokenize. Can be a single text or multiple texts
 #' @param add_special Whether to add special tokens like BOS (Beginning of Sequence) and EOS
