@@ -93,12 +93,13 @@ jobs:
         echo "$vulkanDir\Bin" >> $env:GITHUB_PATH
 
     # Linux Vulkan: glslc compiles GLSL shaders to SPIR-V at build time
+    # spirv-headers: ggml-vulkan requires find_package(SPIRV-Headers) since llama.cpp b11869
     # libvulkan.so.1 at runtime comes from the user's GPU driver — nothing to bundle
     - name: Install Vulkan SDK (Linux Vulkan)
       if: matrix.vulkan == true && runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y glslc libvulkan-dev spirv-tools
+        sudo apt-get install -y glslc libvulkan-dev spirv-tools spirv-headers
 
     # --- Inject our custom files ---
     - name: Copy custom files to llama.cpp directory

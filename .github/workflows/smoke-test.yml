@@ -1,12 +1,21 @@
 name: Smoke Test — All Platforms
 
+# Downloads the backend artifacts of a published release (or pre-release, e.g.
+# v1.4.0-rc1), installs the R package from the same tag, and runs a real model on
+# every platform: load, tokenize, generate() and generate_parallel()
+# (scripts/smoke_test.R). CPU only, so GPU builds are tested without a GPU.
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version tag (e.g. v1.3.0)'
+        description: 'Release version tag (e.g. v1.4.0 or v1.4.0-rc1)'
         required: true
-        default: 'v1.3.0'
+        default: 'v1.4.0'
+
+env:
+  SMOKE_MODEL_URL: https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q8_0.gguf
+  SMOKE_MODEL: smollm2-135m-instruct-q8_0.gguf
 
 jobs:
   smoke:
@@ -49,6 +58,12 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+    # The R package and scripts/smoke_test.R from the same tag as the backend artifacts
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.version }}
+        submodules: false
+
     # Linux Vulkan: install Vulkan loader so dyn.load() can resolve libvulkan.so.1
     - name: Install Vulkan loader (Linux Vulkan)
       if: matrix.vulkan == true
@@ -65,13 +80,15 @@ jobs:
         $vulkanDir = Get-ChildItem "C:\VulkanSDK" | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
         echo "$vulkanDir\Bin" >> $env:GITHUB_PATH
 
+    # Unzip into artifact/, not the workspace root: on macOS lib_is_installed() searches
+    # its directory recursively for any .dylib, and the checkout contains other files.
     # Unix: standard curl + unzip
     - name: Download and unzip artifact (Unix)
       if: runner.os != 'Windows'
       run: |
         curl -fsSL -o artifact.zip \
           "https://github.com/EddieYang211/localLLM/releases/download/${{ github.event.inputs.version }}/${{ matrix.artifact }}"
-        unzip artifact.zip
+        unzip artifact.zip -d artifact
 
     # Windows: PowerShell handles backslash paths in Compress-Archive zips correctly
     - name: Download and unzip artifact (Windows)
@@ -81,17 +98,50 @@ jobs:
         Invoke-WebRequest `
           -Uri "https://github.com/EddieYang211/localLLM/releases/download/${{ github.event.inputs.version }}/${{ matrix.artifact }}" `
           -OutFile artifact.zip
-        Expand-Archive -Path artifact.zip -DestinationPath .
+        Expand-Archive -Path artifact.zip -DestinationPath artifact
 
     # Linux: show missing dependencies before attempting dyn.load
     - name: Check shared library dependencies (Linux)
       if: runner.os == 'Linux'
-      run: ldd "${{ matrix.lib }}" || true
+      run: ldd "artifact/${{ matrix.lib }}" || true
 
     - name: Setup R
       uses: r-lib/actions/setup-r@v2
+      with:
+        use-public-rspm: true
 
     - name: Smoke test — dyn.load
       shell: bash
       run: |
-        Rscript -e 'dyn.load("${{ matrix.lib }}"); cat("dyn.load OK\n")'
+        Rscript -e 'dyn.load("artifact/${{ matrix.lib }}"); cat("dyn.load OK\n")'
+
+    - name: Install R package dependencies
+      uses: r-lib/actions/setup-r-dependencies@v2
+      with:
+        working-directory: localLLM
+        dependencies: '"hard"'
+
+    # Build a source tarball first so .Rbuildignore applies, as for a CRAN source install
+    - name: Build and install the R package
+      shell: bash
+      run: |
+        R CMD build --no-build-vignettes --no-manual localLLM
+        R CMD INSTALL localLLM_*.tar.gz
+
+    - name: Cache smoke-test model
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.SMOKE_MODEL }}
+        key: smoke-model-${{ env.SMOKE_MODEL }}
+
+    - name: Download smoke-test model
+      shell: bash
+      run: |
+        if [ ! -f "$SMOKE_MODEL" ]; then
+          curl -fsSL -o "$SMOKE_MODEL" "$SMOKE_MODEL_URL"
+        fi
+        ls -l "$SMOKE_MODEL"
+
+    - name: Smoke test — load, tokenize, generate, generate_parallel
+      shell: bash
+      run: Rscript scripts/smoke_test.R artifact "$SMOKE_MODEL"
