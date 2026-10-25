@@ -183,15 +183,12 @@ if(USE_OBJECT_LIBRARIES)
         ggml/src/ggml-quants.c
     )
     
-    # Add platform-specific backend sources
-    if(APPLE AND BLAS_AVAILABLE)
-        target_sources(localllm PRIVATE
-            ggml/src/ggml-blas/ggml-blas.cpp
-            ggml/src/ggml-cpu/ggml-cpu.c
-            ggml/src/ggml-cpu/ggml-cpu.cpp
-        )
-    endif()
-    
+    # CPU and BLAS backends: no sources listed here. Copies compiled into this target
+    # would miss the ggml-cpu target's arch flags (-mcpu=...+dotprod+i8mm) and
+    # GGML_USE_CPU_REPACK, and would be linked instead of the upstream objects, which
+    # disables CPU weight repacking on macOS. The upstream ggml-cpu / ggml-blas archives
+    # are linked in through ggml.
+
     # Metal backend: no sources listed here. Since b11869 the shaders are split into
     # ggml/src/ggml-metal/kernels/*.metal; the upstream ggml-metal target (linked in
     # through ggml) compiles the backend and embeds the library itself when

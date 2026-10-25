@@ -122,13 +122,13 @@ static void set_log_verbosity(int verbosity) {
     }
 }
 
-// Restore original logging
+// Called when a function that applied its own verbosity returns. Keep that verbosity for
+// the logging that happens between calls -- contexts and models are freed later from R
+// finalizers (rm() + gc(), R exit) -- instead of falling back to llama.cpp's default logger,
+// which prints every level including DEBUG. generate()/generate_parallel() never restore,
+// so this makes model_load()/context_create() behave the same way.
 static void restore_log_callback() {
-    if (original_log_callback) {
-        llama_log_set(original_log_callback, original_log_user_data);
-    } else {
-        llama_log_set(nullptr, nullptr); // Restore default behavior
-    }
+    set_log_verbosity(current_verbosity);
 }
 
 static char* string_to_c_str(const std::string& s) { 

@@ -142,10 +142,16 @@ jobs:
 
         elif [[ "$OS_NAME" == "macos-15-intel" ]]; then
           CMAKE_ARGS="$CMAKE_ARGS -DLLAMA_ACCELERATE=ON -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
+          # Minimum macOS 13.3, as in llama.cpp's own macOS releases; without it the dylib
+          # requires the runner's macOS version (1.3.0 shipped with 14.0 arm64 / 15.0 x64)
+          CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3"
           echo "macOS Intel: Metal GPU + Accelerate"
 
         elif [[ "$OS_NAME" == "macos-14" ]]; then
           CMAKE_ARGS="$CMAKE_ARGS -DLLAMA_ACCELERATE=ON -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
+          # Minimum macOS 13.3, as in llama.cpp's own macOS releases; without it the dylib
+          # requires the runner's macOS version (1.3.0 shipped with 14.0 arm64 / 15.0 x64)
+          CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3"
           echo "macOS Apple Silicon: Metal GPU"
 
         elif [[ "$OS_NAME" == "ubuntu-latest" && "${{ matrix.vulkan }}" == "true" ]]; then
