@@ -1,5 +1,7 @@
 # localLLM Future Feature Roadmap
 
+> **Current status (2026-10-25): localLLM 1.4.0 is released on GitHub** (`v1.4.0`, Latest; llama.cpp backend **b11869**; tag at master `1e115c3`). All 7 platform backends were built and smoke-tested. **The CRAN submission is pending.** The win-builder checks (R-devel, R-release) have been uploaded and their results will arrive by email; `test_vignettes.R` has not been run yet. Step-by-step status: see "Upgrade plan & status — release 1.4.0" near the end of this file.
+
 > Based on llama.cpp b8766 (2026-04-12) capability analysis.
 > These features are available in the llama.cpp backend and can be exposed to R users by adding bridge code.
 
@@ -545,7 +547,7 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - **GPU cache for MoE experts kept in host memory** (`moe_cache_size`, experimental).
 - The new `llama_batch_ext` API. Migrating is optional for now and should be its own task once the legacy API is formally deprecated.
 
-### Upgrade plan & status — release 1.4.0 (updated 2026-10-24)
+### Upgrade plan & status — release 1.4.0 (updated 2026-10-25)
 
 **Decisions**: the next release is **1.4.0** (not 1.3.1). It bundles the backend upgrade, PR #7, the hybrid-model fix and the low-risk fixes below. `smoke-test.yml` is strengthened to run a real model. The 7-platform CI build is tested with a GitHub **pre-release** (`v1.4.0-rcN`). `install.R` keeps pointing at `v1.3.0` until Phase 4, so users are unaffected. All work happens on branch `backend-b11869`.
 
@@ -631,9 +633,20 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
   - smoke-test run 40161688917: **7/7 platforms passed**.
   - Local end-to-end: `install_localLLM()` downloaded v1.4.0 (macOS arm64, minos 13.3) and generated text.
   - `v1.4.0-rc1` pre-release and tag deleted; `v1.3.1` kept.
-- [ ] 4.8 Submit to CRAN ⏭ NEXT (maintainer): build the tarball from master and submit via the CRAN web form with `cran-comments.md`, then confirm the email.
+- [ ] 4.8 **Submit to CRAN ⏭ IN PROGRESS**
+  - [x] Tarball `localLLM_1.4.0.tar.gz` built from master (`75e4c66`, git-ignored, repo root; sha256 `4088f0f732b0e787…`). The package content is identical to the `v1.4.0` tag (only `cran-comments.md` differs, and it is `.Rbuildignore`d).
+  - [x] `cran-comments.md` updated for 1.4.0 ("Update", not "Resubmission"; Status OK; no reverse dependencies).
+  - [x] Uploaded to **win-builder** R-devel and R-release (2026-10-25, FTP 226 for both).
+  - [ ] Wait for the win-builder result emails (to xu2009@purdue.edu). If OK, add them to the test environments in `cran-comments.md`.
+  - [ ] Pre-submission checklist (`CHECKLIST_BEFORE_CRAN.md`):
+    - 1 DESCRIPTION wording ✅ (unchanged);
+    - 2 parallel benchmark ✅ (adapted `benchmark_parallel.R`: speedup 3.2× Gemma-4-E2B, 4.4× Qwen3-4B);
+    - **4 `test_vignettes.R` ⏳ not run yet** (last output May 2026);
+    - 5 `R CMD check --as-cran` ✅ Status OK;
+    - 6 version / NEWS / `.lib_version` ✅.
+  - [ ] Maintainer submits via https://cran.r-project.org/submit.html (paste `cran-comments.md` into the comment field), then confirms the email.
 
-**Phase 5 — After release**
+**Phase 5 — After release** (GitHub installs of v1.4.0 already work: `remotes::install_github("EddieYang211/localLLM@v1.4.0", subdir = "localLLM")`)
 - [ ] Verify a fresh install: CRAN package → `install_localLLM()` downloads `v1.4.0` → generate.
 - [ ] Note on issue #6 / PR #7 that the fix has shipped.
 - [ ] Follow-ups for later releases:
