@@ -588,10 +588,16 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - Decision (2026-10-24): negative `repeat_last_n` **stays an error**. We will not map `-1` → `n_ctx`; it was never documented. Mention it in NEWS.
 - Noted, not fixed (pre-existing, also on b8766): at `verbosity = 0`, freeing a context when R exits still prints `~llama_context: ... compute buffer size ...` and `ggml_metal_free: deallocating`. b11869 compute buffers are ~5% larger (Metal 301.8 → 317.8 MiB for Qwen3-4B, n_ctx 1024).
 
-**Phase 3 — CI + 7-platform build ⏭ NEXT**
-- [ ] 3.1 `release-builder.yml`: add `spirv-headers` to the Linux Vulkan apt install. `scripts/check_symbols.sh`: `common/libcommon.a` → `libllama-common.a`.
-- [ ] 3.2 Strengthen `smoke-test.yml`: after `dyn.load`, install the R package from the checkout, point it at the downloaded backend, download SmolLM2-135M (cached), and run `tokenize` + `generate` + `generate_parallel` (`n_gpu_layers = 0` on runners without a GPU). Assert non-empty output, no `[ERROR]`, and seq == par.
-- [ ] 3.3 Push the branch; publish pre-release `v1.4.0-rc1` → `release-builder` builds the 7 artifacts → run `smoke-test.yml` with `v1.4.0-rc1`. Iterate with rc2, … until all 7 pass. Check the zip sizes.
+**Phase 3 — CI + 7-platform build ⏭ IN PROGRESS** (3.1–3.2 done; 3.3 needs push + pre-release)
+- [x] 3.1 ✅ (`b4b1760`):
+  - `release-builder.yml`: `spirv-headers` added for Linux Vulkan. Windows Vulkan is unchanged: `choco install vulkan-sdk` installs the LunarG SDK and sets `VULKAN_SDK`, which is what upstream's own Windows CI relies on (verify in rc1).
+  - `check_symbols.sh` had **never passed**, not even on b8766: `nm | grep -q` under `pipefail` gave false negatives, and the next step, `((n++))`, trips `set -e` when n is 0. Both are fixed, the check now targets `libggml-base.a`, and `libllama-common.a` is checked for existence.
+- [x] 3.2 ✅ (`b4b1760`): `smoke-test.yml` checks out the tag, builds and installs the R package from a source tarball, caches SmolLM2-135M, and runs `scripts/smoke_test.R`. That script is CPU-only and checks: special tokens, generate, parallel == sequential (incl. identical prompts and the 1-prompt leftover), no `[ERROR]`, no leaks. Locally it passes on b8766+PR7 and b11869, and **fails on the pre-PR7 backend** (negative control).
+- [ ] 3.3 **Needs maintainer action** (push + public pre-release):
+  1. `git push origin backend-b11869`.
+  2. GitHub → Releases → *Draft a new release*: tag `v1.4.0-rc1`, target branch **`backend-b11869`**, tick **"Set as a pre-release"**, then publish. `release-builder` runs on `release: published`, which includes pre-releases, and uses the workflow file at the tag.
+  3. Wait for the 7 artifacts to be uploaded. Then Actions → *Smoke Test — All Platforms* → *Run workflow* with **"Use workflow from: `backend-b11869`"** (master still has the old smoke test) and version `v1.4.0-rc1`.
+  4. On failure: fix on the branch, then publish `v1.4.0-rc2`, and so on. Check the zip sizes (macOS dylib 13.5 MB). Delete the rc pre-releases after the final release.
 
 **Phase 4 — Release**
 - [ ] 4.1 `install.R`: `.lib_version <- "1.4.0"`, `.base_url` → `v1.4.0`.
@@ -617,4 +623,5 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
   - use the Jinja prompt parts (`is_input`) so special tokens in user text are not parsed (PR #7 trade-off);
   - `next_batch` per-token allocation and dead-code cleanup (incl. the now-unreachable `need_prompt_logit`/`priming` path);
   - silence the exit-time context-free logs at `verbosity = 0`;
+  - `localLLM/src/liblocalllm.dylib` (a backend binary) is tracked in git. It is excluded from the tarball by `.Rbuildignore`, but it should be removed from the repo;
   - roadmap items 1–4.
