@@ -588,16 +588,16 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - Decision (2026-10-24): negative `repeat_last_n` **stays an error**. We will not map `-1` → `n_ctx`; it was never documented. Mention it in NEWS.
 - Noted (now fixed by G, `a2ff6c7`): at `verbosity = 0`, freeing a context when R exits printed `~llama_context: ... compute buffer size ...` and `ggml_metal_free: deallocating`. b11869 compute buffers are ~5% larger (Metal 301.8 → 317.8 MiB for Qwen3-4B, n_ctx 1024).
 
-**Phase 3 — CI + 7-platform build ⏭ IN PROGRESS** (3.1–3.2 done; 3.3 needs push + pre-release)
+**Phase 3 — CI + 7-platform build ✅ DONE**
 - [x] 3.1 ✅ (`b4b1760`):
   - `release-builder.yml`: `spirv-headers` added for Linux Vulkan. Windows Vulkan is unchanged: `choco install vulkan-sdk` installs the LunarG SDK and sets `VULKAN_SDK`, which is what upstream's own Windows CI relies on (verify in rc1).
   - `check_symbols.sh` had **never passed**, not even on b8766: `nm | grep -q` under `pipefail` gave false negatives, and the next step, `((n++))`, trips `set -e` when n is 0. Both are fixed, the check now targets `libggml-base.a`, and `libllama-common.a` is checked for existence.
 - [x] 3.2 ✅ (`b4b1760`): `smoke-test.yml` checks out the tag, builds and installs the R package from a source tarball, caches SmolLM2-135M, and runs `scripts/smoke_test.R`. That script is CPU-only and checks: special tokens, generate, parallel == sequential (incl. identical prompts and the 1-prompt leftover), no `[ERROR]`, no leaks. Locally it passes on b8766+PR7 and b11869, and **fails on the pre-PR7 backend** (negative control).
-- [ ] 3.3 **Needs maintainer action** (push + public pre-release):
-  1. `git push origin backend-b11869`.
-  2. GitHub → Releases → *Draft a new release*: tag `v1.4.0-rc1`, target branch **`backend-b11869`**, tick **"Set as a pre-release"**, then publish. `release-builder` runs on `release: published`, which includes pre-releases, and uses the workflow file at the tag.
-  3. Wait for the 7 artifacts to be uploaded. Then Actions → *Smoke Test — All Platforms* → *Run workflow* with **"Use workflow from: `backend-b11869`"** (master still has the old smoke test) and version `v1.4.0-rc1`.
-  4. On failure: fix on the branch, then publish `v1.4.0-rc2`, and so on. Check the zip sizes (macOS dylib 13.5 MB). Delete the rc pre-releases after the final release.
+- [x] 3.3 ✅ (2026-10-25): branch pushed; pre-release **`v1.4.0-rc1`** published from `backend-b11869` at `a02feb7`.
+  - `release-builder` run 40157492649: **all 7 builds succeeded on the first try**. Zips: macOS arm64 4.0 MB / x64 4.2 MB (was ~2 MB), Linux 4.0 MB, aarch64 3.6 MB, Linux Vulkan 14.3 MB (was 16), Windows 2.7 MB, Windows Vulkan 15.1 MB (was 19). The fixed `check_symbols.sh` passed 8/8 on Linux for the first time.
+  - macOS artifacts: `minos 13.3` (arm64 and x86_64), linked against `/usr/lib/libcurl.4.dylib`, 37 `localllm_*` exports. The CI-built arm64 dylib passed the smoke test locally, and its Metal outputs equal the local build (6/6).
+  - `smoke-test` run 40158283156 (from `backend-b11869`): **7/7 platforms passed all checks**: Linux CPU / Vulkan / aarch64, Windows CPU / Vulkan, macOS Intel / Apple Silicon. Every platform gave the same text for the sample prompt.
+  - Note: an older GitHub pre-release `v1.3.1` (2026-05-15, built at `a017b26`, same backend code as v1.3.0, never referenced by `install.R`) also exists. Delete it together with the rc pre-releases after the final release.
 
 **Open issues found in the pre-push review (2026-10-24)**
 - [x] **A. ✅ FIXED (`a2ff6c7`). macOS CPU path built without upstream CPU flags.** On Apple, `CMakeLists.txt.custom` compiles its own copies of `ggml-cpu.c`, `ggml-cpu.cpp` and `ggml-blas.cpp` into `localllm`. These copies lack the ggml-cpu target's `-mcpu=native+dotprod+i8mm` and `-DGGML_USE_CPU_REPACK`, and they are the ones linked (`ggml_graph_compute`, `ggml_cpu_has_*`), so CPU weight repacking is off. This is pre-existing (b8766 too). Linux/Windows do not compile these copies. Experiment with the 3 sources dropped (use the upstream archives), CPU only, 4 threads, M3 Pro:
@@ -609,11 +609,11 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - [ ] **B. macOS release builds use `GGML_NATIVE` (default ON)** — same as upstream's own macOS release builds, which also leave it ON (only Linux/Windows use NATIVE=OFF plus CPU variants), so this is low priority. Linux/Windows set `GGML_NATIVE=OFF`. The CPU kernels are tuned to whatever CPU the GitHub runner has, so a runner upgrade (e.g. to an M2+ with i8mm, or an Intel runner with AVX-512) could produce binaries that crash with an illegal instruction on older Macs. This is pre-existing. Consider explicit `-DGGML_NATIVE=OFF` plus baseline CPU flags for macOS.
 - [x] **F. ✅ FIXED (`a2ff6c7`): `-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3` added to both macOS CI builds. A local build with it reports minos 13.3. macOS minimum OS version used to be whatever the CI runner had.** The released 1.3.0 dylibs report `LC_BUILD_VERSION minos` **14.0** (arm64, built on macos-14) and **15.0** (x86_64, built on macos-15-intel), because `release-builder.yml` never sets `CMAKE_OSX_DEPLOYMENT_TARGET`. Intel Macs from 2017 and earlier cannot run macOS 15. The exact failure on an older OS is not verified (no older Mac available): load failure, or missing APIs at runtime. Upstream's macOS release sets `-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3` for both arches. Add the same to both macOS entries and check `otool -l … | grep minos` on the rc artifacts.
 - [x] **G. ✅ FIXED (`a2ff6c7`). Teardown logs at `verbosity = 0`.** `restore_log_callback()` reset to llama.cpp's default logger (all levels) when `model_load()`/`context_create()` returned, so contexts/models freed later by R finalizers printed `~llama_context: … compute buffer size …` (DEBUG) and `ggml_metal_free: deallocating` (INFO). Now the call's verbosity is kept, as `generate()` already did; background logging follows the most recent verbosity. At R exit after load only: verbosity 0/1 → 0 lines, 2 → 1, 3 → 4.
-- [ ] C. Verify in rc1: macOS artifacts report `minos 13.3` and link `/usr/lib/libcurl.4.dylib` (not Homebrew); the duplicated ggml core sources (`ggml.c`, `gguf.cpp`, …) still link on Linux/Windows against b11869's `libggml-base.a` (they did on b8766); Windows Vulkan finds SPIRV-Headers via `VULKAN_SDK`; zip sizes.
+- [x] C. ✅ Verified in rc1: macOS artifacts report `minos 13.3` and link `/usr/lib/libcurl.4.dylib` (not Homebrew); the duplicated ggml core sources (`ggml.c`, `gguf.cpp`, …) still link on Linux/Windows against b11869's `libggml-base.a` (they did on b8766); Windows Vulkan finds SPIRV-Headers via `VULKAN_SDK`; zip sizes.
 - [ ] D. Docs (Phase 4): `tokenize()` should say that special-token text such as `<|im_start|>` is now parsed as special tokens (PR #7). The example log in `reproducible-output.Rmd` shows `package_version` 1.3.0 (cosmetic).
 - [ ] E. Untested: the Gemma 4 pre-closed-thinking strip (E2B's template does not pre-close).
 
-**Phase 4 — Release**
+**Phase 4 — Release ⏭ NEXT**
 - [ ] 4.1 `install.R`: `.lib_version <- "1.4.0"`, `.base_url` → `v1.4.0`.
 - [ ] 4.2 `DESCRIPTION`: Version 1.4.0, Date.
 - [ ] 4.3 `NEWS.md` 1.4.0 should cover:
