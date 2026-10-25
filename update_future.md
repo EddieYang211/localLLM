@@ -561,7 +561,7 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - [x] Hybrid-model bug reproduced (pre-existing, see "Bug: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models").
 - [ ] *Optional*: exercise the Gemma 4 pre-closed-thinking strip. E2B's template does not pre-close, so it needs a model that does, e.g. 26B-A4B.
 
-**Phase 2 — Bug fixes ⏭ IN PROGRESS** (2.1 done; next 2.2)
+**Phase 2 — Bug fixes ✅ DONE**
 - [x] 2.1 **Hybrid prefix sharing (HIGH)** ✅ FIXED (`e71499a`):
   - [x] (a) Root cause, found by instrumenting: there is one cause, the partial `seq_rm` when the shared prefix covers a whole prompt. It is triggered by single-prompt C calls (including R's leftover batches), by identical prompts, and by every call when `n_seq_max <= 2`.
   - [x] (b) Fix: llama.cpp server's rule. Shared prefix ≤ `min(n_prompt) - 1`, no sharing for a single prompt; the `prompt == prefix` branch and the partial `seq_rm` were removed.
@@ -572,15 +572,17 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
       - Fix vs pre-fix: `generate_parallel()` output identical 100/100 and timing unchanged (Gemma-4-E2B 28.0 → 28.0 s; Qwen3-4B 44.8 → 46.0 s, within noise).
       - Backend upgrade b8766 → b11869: parallel is **~35% faster** (Gemma-4-E2B 43.9 → 28.0 s, speedup over sequential 2.10× → 3.22×; Qwen3-4B 68.3 → 44.8 s, 2.86× → 4.37×), and sequential is unchanged.
       - par == seq is 100/100 on b11869. On b8766, one Gemma-4-E2B prompt diverged in parallel mode (batch-composition numerics).
-- [ ] 2.2 **Small fixes**:
-  - [ ] Add `export(model_metadata)` to the hand-written `NAMESPACE`.
-  - [ ] `path.expand()` the model path in `model_load()`.
-  - [ ] Reject negative `repeat_last_n` in `generate()`/`generate_parallel()`/`quick_llama()`.
-  - [ ] Validate `use_mmap`/`use_mlock` as non-NA logical scalars (NA currently reaches C as TRUE).
-- [ ] 2.3 testthat tests for the R-side validations (no backend or network needed, so CRAN-safe).
-- [ ] 2.4 Rebuild and re-run the Phase 1 regression; commit.
+- [x] 2.2 **Small fixes** ✅ (`9ba311c`):
+  - [x] Add `export(model_metadata)` to `NAMESPACE`.
+  - [x] `model_load()` applies `path.expand()` to the resolved path. Covers `"~/x.gguf"` and a `cache_dir` under `~`, since R's `file.exists()` expands `~` but C does not.
+  - [x] Reject negative / NA / non-scalar `repeat_last_n` in `generate()`/`generate_parallel()`; `quick_llama()` checks before any model download.
+  - [x] `use_mmap`/`use_mlock` must be TRUE or FALSE.
+  - The Rd files were edited by hand to match the roxygen comments, to avoid regenerating all Rd files with roxygen2 8.0.0 (they were generated with 7.3.3).
+- [x] 2.3 `tests/testthat/test-param-validation.R`: 17 expectations, backend mocked, CRAN-safe. Full suite on the dev package: 65 tests / 216 expectations, 0 failures, 16 skips (pre-existing). End-to-end check with the real backend passed.
+- [x] 2.4 Backend rebuilt with the hybrid fix and regression re-run (12 scenarios × 6 models + ag_news benchmark). The R-side fixes do not touch generation paths.
+- Noted, not fixed (pre-existing, also on b8766): at `verbosity = 0`, freeing a context when R exits still prints `~llama_context: ... compute buffer size ...` and `ggml_metal_free: deallocating`. b11869 compute buffers are ~5% larger (Metal 301.8 → 317.8 MiB for Qwen3-4B, n_ctx 1024).
 
-**Phase 3 — CI + 7-platform build**
+**Phase 3 — CI + 7-platform build ⏭ NEXT**
 - [ ] 3.1 `release-builder.yml`: add `spirv-headers` to the Linux Vulkan apt install. `scripts/check_symbols.sh`: `common/libcommon.a` → `libllama-common.a`.
 - [ ] 3.2 Strengthen `smoke-test.yml`: after `dyn.load`, install the R package from the checkout, point it at the downloaded backend, download SmolLM2-135M (cached), and run `tokenize` + `generate` + `generate_parallel` (`n_gpu_layers = 0` on runners without a GPU). Assert non-empty output, no `[ERROR]`, and seq == par.
 - [ ] 3.3 Push the branch; publish pre-release `v1.4.0-rc1` → `release-builder` builds the 7 artifacts → run `smoke-test.yml` with `v1.4.0-rc1`. Iterate with rc2, … until all 7 pass. Check the zip sizes.
@@ -607,5 +609,6 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - [ ] Follow-ups for later releases:
   - `llama_batch_ext` migration;
   - use the Jinja prompt parts (`is_input`) so special tokens in user text are not parsed (PR #7 trade-off);
-  - `next_batch` per-token allocation and dead-code cleanup;
+  - `next_batch` per-token allocation and dead-code cleanup (incl. the now-unreachable `need_prompt_logit`/`priming` path);
+  - silence the exit-time context-free logs at `verbosity = 0`;
   - roadmap items 1–4.
