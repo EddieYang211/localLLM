@@ -610,18 +610,18 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - [x] **F. ✅ FIXED (`a2ff6c7`): `-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3` added to both macOS CI builds. A local build with it reports minos 13.3. macOS minimum OS version used to be whatever the CI runner had.** The released 1.3.0 dylibs report `LC_BUILD_VERSION minos` **14.0** (arm64, built on macos-14) and **15.0** (x86_64, built on macos-15-intel), because `release-builder.yml` never sets `CMAKE_OSX_DEPLOYMENT_TARGET`. Intel Macs from 2017 and earlier cannot run macOS 15. The exact failure on an older OS is not verified (no older Mac available): load failure, or missing APIs at runtime. Upstream's macOS release sets `-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3` for both arches. Add the same to both macOS entries and check `otool -l … | grep minos` on the rc artifacts.
 - [x] **G. ✅ FIXED (`a2ff6c7`). Teardown logs at `verbosity = 0`.** `restore_log_callback()` reset to llama.cpp's default logger (all levels) when `model_load()`/`context_create()` returned, so contexts/models freed later by R finalizers printed `~llama_context: … compute buffer size …` (DEBUG) and `ggml_metal_free: deallocating` (INFO). Now the call's verbosity is kept, as `generate()` already did; background logging follows the most recent verbosity. At R exit after load only: verbosity 0/1 → 0 lines, 2 → 1, 3 → 4.
 - [x] C. ✅ Verified in rc1: macOS artifacts report `minos 13.3` and link `/usr/lib/libcurl.4.dylib` (not Homebrew); the duplicated ggml core sources (`ggml.c`, `gguf.cpp`, …) still link on Linux/Windows against b11869's `libggml-base.a` (they did on b8766); Windows Vulkan finds SPIRV-Headers via `VULKAN_SDK`; zip sizes.
-- [ ] D. Docs (Phase 4): `tokenize()` should say that special-token text such as `<|im_start|>` is now parsed as special tokens (PR #7). The example log in `reproducible-output.Rmd` shows `package_version` 1.3.0 (cosmetic).
+- [x] D. ✅ (`8f49b64`) Docs: `tokenize()` should say that special-token text such as `<|im_start|>` is now parsed as special tokens (PR #7). The example log in `reproducible-output.Rmd` shows `package_version` 1.3.0 (cosmetic).
 - [ ] E. Untested: the Gemma 4 pre-closed-thinking strip (E2B's template does not pre-close).
 
 **Phase 4 — Release ⏭ NEXT**
-- [ ] 4.1 `install.R`: `.lib_version <- "1.4.0"`, `.base_url` → `v1.4.0`.
-- [ ] 4.2 `DESCRIPTION`: Version 1.4.0, Date.
-- [ ] 4.3 `NEWS.md` 1.4.0 should cover:
+- [x] 4.1 ✅ (`8f49b64`) `install.R`: `.lib_version <- "1.4.0"`, `.base_url` → `v1.4.0`.
+- [x] 4.2 ✅ (`8f49b64`) `DESCRIPTION`: Version 1.4.0, Date 2026-10-24. **Update the Date on the submission day.**
+- [x] 4.3 ✅ (`8f49b64`, reviewed by the maintainer) `NEWS.md` 1.4.0 covers:
   - PR #7 special-token fix (credit t-davidson);
   - the backend upgrade b8766 → b11869 and the new architectures;
   - the hybrid-model fix and the small fixes;
   - behaviour notes: same-seed outputs differ from 1.3.0 because of PR #7, temp 0 now uses the greedy sampler, negative `repeat_last_n` is rejected, and the `load_mode` AUTO fallback.
-- [ ] 4.4 Vignettes:
+- [x] 4.4 ✅ (`8f49b64`) Vignettes (plus the get-started and FAQ install-from-source / GitHub sections, and the `tokenize()` doc note):
   - add the `reproducible-output.Rmd` disclaimer (CPU vs GPU, cross-chip Metal tuning, MoE);
   - update model-support notes.
 - [ ] 4.5 Merge `backend-b11869` → master.
