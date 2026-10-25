@@ -378,7 +378,7 @@ for (int slot_idx : slots_pending_reassign) {
 
 ---
 
-## Bug: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models (Priority: HIGH) — CONFIRMED 2026-10-24
+## Bug: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models (Priority: HIGH) — ✅ FIXED 2026-10-24 (`e71499a`, branch `backend-b11869`)
 
 **Found**: 2026-10-24, by code reading during the b11869 upgrade analysis. **Reproduced the same day** with LFM2-350M (`lfm2`, hybrid), Q4_K_M, on macOS Metal. It happens **identically on b8766 (1.3.0 + PR #7) and on b11869**, so current users are affected.
 
@@ -393,9 +393,16 @@ for (int slot_idx : slots_pending_reassign) {
 
 The backend log for each failure is `init: the tokens of sequence 1 in the input batch have inconsistent sequence positions … X = n_prompt-1 … Y = n_prompt-1`.
 
-There are two distinct failure modes:
-1. **prompt == shared prefix** (identical prompts): explained below, and always fails.
-2. **Reused slot**: this fails only sometimes (1/4 in two sets, 0/12 in another), and the **root cause is not yet identified**. At the moment of the prompt decode, the reused sequence already holds positions up to `n_prompt-1`, which suggests that recurrent state from the shared seq 0 or from the slot's previous occupant was not reset or copied correctly. Debug it by logging slot index, `prefix_len`, `shared_prefix_len` and `llama_memory_seq_pos_max()` before and after `seq_rm`/`seq_cp`. Dense models (SmolLM2, Qwen2.5, Qwen3, Gemma 4) never fail in either mode.
+**Root cause (found 2026-10-24 by instrumenting the backend)**: there is only **one** cause, the partial `seq_rm` described below. The apparent second "reused slot" failure mode was a misreading. R's `generate_parallel()` splits prompts into C calls of `per_call_capacity = n_seq_max - 1` prompts each (`api.R`), so 4 prompts with `n_seq_max = 4` become calls of 3 + 1. In the **1-prompt call**, the shared prefix is the whole prompt, which triggers the `prompt == prefix` path. The debug log shows `partial seq_rm(1, n_prompt-1, -1) -> 0` followed by the decode failure. The 12-prompt test split evenly into 4 × 3, so it never hit the path.
+
+The partial-`seq_rm` path is therefore hit whenever, inside one C call, the shared prefix covers a whole prompt:
+- the call contains a **single prompt**: `generate_parallel()` with one prompt; any leftover batch where `length(prompts) %% (n_seq_max - 1) == 1`; and **every** call when `n_seq_max <= 2`;
+- **identical prompts**;
+- one prompt is a token-prefix of all the others.
+
+Dense models (SmolLM2, Qwen2.5, Qwen3, Gemma 4) never fail, because their KV cache supports partial removal. The `slots(seq_capacity)` / `seq_id = slot_idx + 1` layout could exceed `n_seq_max - 1`, but the R-side batching keeps it in range, so it is not a live bug.
+
+**Recommended fix**: cap `shared_prefix_len` at `min(n_prompt) - 1` across the call, so seq 0 never holds a whole prompt and every slot keeps at least one suffix token. Then no partial `seq_rm` is ever needed, prefix sharing still works for recurrent/hybrid models, and the `prompt == prefix` special case plus the partial `seq_rm` can be deleted. The two alternatives listed below (per-slot fallback, or disabling sharing for these models) are no longer needed.
 
 **Original analysis** (failure mode 1):
 
@@ -554,11 +561,13 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - [x] Hybrid-model bug reproduced (pre-existing, see "Bug: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models").
 - [ ] *Optional*: exercise the Gemma 4 pre-closed-thinking strip. E2B's template does not pre-close, so it needs a model that does, e.g. 26B-A4B.
 
-**Phase 2 — Bug fixes ⏭ NEXT**
-- [ ] 2.1 **Hybrid prefix sharing (HIGH)**:
-  - [ ] (a) Instrument `localllm_generate_parallel()` (slot index, `prefix_len`, `shared_prefix_len`, `llama_memory_seq_pos_max()` around every `seq_rm`/`seq_cp`) and find the root cause of failure mode 2 (reused slot).
-  - [ ] (b) Fix both modes. Choose between a per-slot fallback (check the `seq_rm` return value, then do a full `seq_rm` + decode the whole prompt) and disabling prefix sharing for `llama_model_is_recurrent() || llama_model_is_hybrid()`.
-  - [ ] (c) Re-test LFM2-350M (identical / shared-prefix / unrelated / 12 prompts; `n_seq_max` 4 and 5) plus a second hybrid model (a small Qwen3.5), and confirm the dense-model regression is unchanged.
+**Phase 2 — Bug fixes ⏭ IN PROGRESS** (2.1 done; next 2.2)
+- [x] 2.1 **Hybrid prefix sharing (HIGH)** ✅ FIXED (`e71499a`):
+  - [x] (a) Root cause, found by instrumenting: there is one cause, the partial `seq_rm` when the shared prefix covers a whole prompt. It is triggered by single-prompt C calls (including R's leftover batches), by identical prompts, and by every call when `n_seq_max <= 2`.
+  - [x] (b) Fix: llama.cpp server's rule. Shared prefix ≤ `min(n_prompt) - 1`, no sharing for a single prompt; the `prompt == prefix` branch and the partial `seq_rm` were removed.
+  - [x] (c) Verified on 12 scenarios × 6 models:
+    - LFM2-350M and Qwen3.5-0.8B: errors went from 25/37 to 0/37, and all outputs equal `generate()`.
+    - The 4 dense models: byte-identical to before the fix (39/39 each), and equal to `generate()`.
 - [ ] 2.2 **Small fixes**:
   - [ ] Add `export(model_metadata)` to the hand-written `NAMESPACE`.
   - [ ] `path.expand()` the model path in `model_load()`.
