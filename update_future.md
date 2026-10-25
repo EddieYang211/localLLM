@@ -613,9 +613,9 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - [x] D. ✅ (`8f49b64`) Docs: `tokenize()` should say that special-token text such as `<|im_start|>` is now parsed as special tokens (PR #7). The example log in `reproducible-output.Rmd` shows `package_version` 1.3.0 (cosmetic).
 - [ ] E. Untested: the Gemma 4 pre-closed-thinking strip (E2B's template does not pre-close).
 
-**Phase 4 — Release ⏭ NEXT**
+**Phase 4 — Release ⏭ IN PROGRESS** (4.1–4.7 done; 4.8 CRAN submission left)
 - [x] 4.1 ✅ (`8f49b64`) `install.R`: `.lib_version <- "1.4.0"`, `.base_url` → `v1.4.0`.
-- [x] 4.2 ✅ (`8f49b64`) `DESCRIPTION`: Version 1.4.0, Date 2026-10-24. **Update the Date on the submission day.**
+- [x] 4.2 ✅ (`8f49b64`) `DESCRIPTION`: Version 1.4.0, Date 2026-10-24. The Date was kept as is so that the CRAN tarball matches the `v1.4.0` tag.
 - [x] 4.3 ✅ (`8f49b64`, reviewed by the maintainer) `NEWS.md` 1.4.0 covers:
   - PR #7 special-token fix (credit t-davidson);
   - the backend upgrade b8766 → b11869 and the new architectures;
@@ -624,10 +624,14 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - [x] 4.4 ✅ (`8f49b64`) Vignettes (plus the get-started and FAQ install-from-source / GitHub sections, and the `tokenize()` doc note):
   - add the `reproducible-output.Rmd` disclaimer (CPU vs GPU, cross-chip Metal tuning, MoE);
   - update model-support notes.
-- [ ] 4.5 Merge `backend-b11869` → master.
-- [ ] 4.6 Run `R CMD build` + `R CMD check --as-cran` and update `cran-comments.md`. Go through the checklist in `CRAN_POLICY_NOTES.md`.
-- [ ] 4.7 Publish the final GitHub release `v1.4.0` → CI builds the assets → `smoke-test.yml` with `v1.4.0`. This must happen **before** the CRAN submission.
-- [ ] 4.8 Submit to CRAN.
+- [x] 4.5 ✅ Merged via PR #8 (merge commit `1e115c3`, 2026-10-25). PR CI: R-CMD-check on macOS/Windows release and Ubuntu devel/release/oldrel-1, plus test-coverage, all green. The branch has been deleted.
+- [x] 4.6 ✅ Local `R CMD check --as-cran` on 1.4.0: **Status OK** (two INFOs: Suggests covr/irr not installed locally; "specified C++17" from R 4.6). `cran-comments.md` updated for 1.4.0. No reverse dependencies.
+- [x] 4.7 ✅ Release **`v1.4.0`** published from master `1e115c3` (Latest).
+  - release-builder run 40161101098: 7/7 builds.
+  - smoke-test run 40161688917: **7/7 platforms passed**.
+  - Local end-to-end: `install_localLLM()` downloaded v1.4.0 (macOS arm64, minos 13.3) and generated text.
+  - `v1.4.0-rc1` pre-release and tag deleted; `v1.3.1` kept.
+- [ ] 4.8 Submit to CRAN ⏭ NEXT (maintainer): build the tarball from master and submit via the CRAN web form with `cran-comments.md`, then confirm the email.
 
 **Phase 5 — After release**
 - [ ] Verify a fresh install: CRAN package → `install_localLLM()` downloads `v1.4.0` → generate.
