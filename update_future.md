@@ -586,7 +586,7 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
   - `R CMD check --as-cran`: 1 NOTE (Date field over a month old; fixed by 4.2).
   - From now on, regenerate with `roxygen2::roxygenise()` and never hand-edit NAMESPACE.
 - Decision (2026-10-24): negative `repeat_last_n` **stays an error**. We will not map `-1` → `n_ctx`; it was never documented. Mention it in NEWS.
-- Noted, not fixed (pre-existing, also on b8766): at `verbosity = 0`, freeing a context when R exits still prints `~llama_context: ... compute buffer size ...` and `ggml_metal_free: deallocating`. b11869 compute buffers are ~5% larger (Metal 301.8 → 317.8 MiB for Qwen3-4B, n_ctx 1024).
+- Noted (now fixed by G, `a2ff6c7`): at `verbosity = 0`, freeing a context when R exits printed `~llama_context: ... compute buffer size ...` and `ggml_metal_free: deallocating`. b11869 compute buffers are ~5% larger (Metal 301.8 → 317.8 MiB for Qwen3-4B, n_ctx 1024).
 
 **Phase 3 — CI + 7-platform build ⏭ IN PROGRESS** (3.1–3.2 done; 3.3 needs push + pre-release)
 - [x] 3.1 ✅ (`b4b1760`):
@@ -600,15 +600,16 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
   4. On failure: fix on the branch, then publish `v1.4.0-rc2`, and so on. Check the zip sizes (macOS dylib 13.5 MB). Delete the rc pre-releases after the final release.
 
 **Open issues found in the pre-push review (2026-10-24)**
-- [ ] **A. macOS CPU path built without upstream CPU flags — DECISION NEEDED.** On Apple, `CMakeLists.txt.custom` compiles its own copies of `ggml-cpu.c`, `ggml-cpu.cpp` and `ggml-blas.cpp` into `localllm`. These copies lack the ggml-cpu target's `-mcpu=native+dotprod+i8mm` and `-DGGML_USE_CPU_REPACK`, and they are the ones linked (`ggml_graph_compute`, `ggml_cpu_has_*`), so CPU weight repacking is off. This is pre-existing (b8766 too). Linux/Windows do not compile these copies. Experiment with the 3 sources dropped (use the upstream archives), CPU only, 4 threads, M3 Pro:
+- [x] **A. ✅ FIXED (`a2ff6c7`). macOS CPU path built without upstream CPU flags.** On Apple, `CMakeLists.txt.custom` compiles its own copies of `ggml-cpu.c`, `ggml-cpu.cpp` and `ggml-blas.cpp` into `localllm`. These copies lack the ggml-cpu target's `-mcpu=native+dotprod+i8mm` and `-DGGML_USE_CPU_REPACK`, and they are the ones linked (`ggml_graph_compute`, `ggml_cpu_has_*`), so CPU weight repacking is off. This is pre-existing (b8766 too). Linux/Windows do not compile these copies. Experiment with the 3 sources dropped (use the upstream archives), CPU only, 4 threads, M3 Pro:
   - Gemma-4-E2B Q4_0: 39.3 → **50.7 tok/s (+29%)**, output identical.
   - Qwen2.5-0.5B Q4_K_M: 168 → 174 tok/s, **output differs**.
   - Qwen3-4B Q8_0: 22.8 → 22.6 tok/s, **output differs**.
   - Metal outputs are unchanged (6/6 seq and par on two models), and the smoke test passes.
   - Dropping the copies matches upstream llama.cpp's own CPU results, and it would change macOS CPU-only outputs vs 1.3.0 for some quant types.
 - [ ] **B. macOS release builds use `GGML_NATIVE` (default ON)** — same as upstream's own macOS release builds, which also leave it ON (only Linux/Windows use NATIVE=OFF plus CPU variants), so this is low priority. Linux/Windows set `GGML_NATIVE=OFF`. The CPU kernels are tuned to whatever CPU the GitHub runner has, so a runner upgrade (e.g. to an M2+ with i8mm, or an Intel runner with AVX-512) could produce binaries that crash with an illegal instruction on older Macs. This is pre-existing. Consider explicit `-DGGML_NATIVE=OFF` plus baseline CPU flags for macOS.
-- [ ] **F. macOS minimum OS version is whatever the CI runner has — RECOMMEND FIXING IN 1.4.0.** The released 1.3.0 dylibs report `LC_BUILD_VERSION minos` **14.0** (arm64, built on macos-14) and **15.0** (x86_64, built on macos-15-intel), because `release-builder.yml` never sets `CMAKE_OSX_DEPLOYMENT_TARGET`. Intel Macs from 2017 and earlier cannot run macOS 15. The exact failure on an older OS is not verified (no older Mac available): load failure, or missing APIs at runtime. Upstream's macOS release sets `-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3` for both arches. Add the same to both macOS entries and check `otool -l … | grep minos` on the rc artifacts.
-- [ ] C. Verify in rc1: the duplicated ggml core sources (`ggml.c`, `gguf.cpp`, …) still link on Linux/Windows against b11869's `libggml-base.a` (they did on b8766); Windows Vulkan finds SPIRV-Headers via `VULKAN_SDK`; zip sizes.
+- [x] **F. ✅ FIXED (`a2ff6c7`): `-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3` added to both macOS CI builds. A local build with it reports minos 13.3. macOS minimum OS version used to be whatever the CI runner had.** The released 1.3.0 dylibs report `LC_BUILD_VERSION minos` **14.0** (arm64, built on macos-14) and **15.0** (x86_64, built on macos-15-intel), because `release-builder.yml` never sets `CMAKE_OSX_DEPLOYMENT_TARGET`. Intel Macs from 2017 and earlier cannot run macOS 15. The exact failure on an older OS is not verified (no older Mac available): load failure, or missing APIs at runtime. Upstream's macOS release sets `-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3` for both arches. Add the same to both macOS entries and check `otool -l … | grep minos` on the rc artifacts.
+- [x] **G. ✅ FIXED (`a2ff6c7`). Teardown logs at `verbosity = 0`.** `restore_log_callback()` reset to llama.cpp's default logger (all levels) when `model_load()`/`context_create()` returned, so contexts/models freed later by R finalizers printed `~llama_context: … compute buffer size …` (DEBUG) and `ggml_metal_free: deallocating` (INFO). Now the call's verbosity is kept, as `generate()` already did; background logging follows the most recent verbosity. At R exit after load only: verbosity 0/1 → 0 lines, 2 → 1, 3 → 4.
+- [ ] C. Verify in rc1: macOS artifacts report `minos 13.3` and link `/usr/lib/libcurl.4.dylib` (not Homebrew); the duplicated ggml core sources (`ggml.c`, `gguf.cpp`, …) still link on Linux/Windows against b11869's `libggml-base.a` (they did on b8766); Windows Vulkan finds SPIRV-Headers via `VULKAN_SDK`; zip sizes.
 - [ ] D. Docs (Phase 4): `tokenize()` should say that special-token text such as `<|im_start|>` is now parsed as special tokens (PR #7). The example log in `reproducible-output.Rmd` shows `package_version` 1.3.0 (cosmetic).
 - [ ] E. Untested: the Gemma 4 pre-closed-thinking strip (E2B's template does not pre-close).
 
@@ -635,7 +636,6 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
   - `llama_batch_ext` migration;
   - use the Jinja prompt parts (`is_input`) so special tokens in user text are not parsed (PR #7 trade-off);
   - `next_batch` per-token allocation and dead-code cleanup (incl. the now-unreachable `need_prompt_logit`/`priming` path);
-  - silence the exit-time context-free logs at `verbosity = 0`;
   - stale `custom_files/localllm_capi.cpp.backup`, the duplicate `#include <filesystem>`, and the dead `check_static_library_completeness()` / pure-glue branch in `CMakeLists.txt.custom`;
   - `localLLM/src/liblocalllm.dylib` (a backend binary) is tracked in git. It is excluded from the tarball by `.Rbuildignore`, but it should be removed from the repo;
   - roadmap items 1–4.
