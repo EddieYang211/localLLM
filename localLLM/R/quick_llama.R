@@ -43,7 +43,7 @@
 #'   detail: \code{0} prints only errors, \code{1} adds warnings, \code{2}
 #'   includes informational messages, and \code{3} enables the most verbose debug
 #'   output.
-#' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable
+#' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable. Must be non-negative
 #' @param penalty_repeat Repetition penalty strength (default: 1.0). Set to 1.0 to disable
 #' @param system_prompt System prompt to add to conversation (default: "You are a helpful assistant.")
 #' @param auto_format Whether to automatically apply chat template formatting (default: TRUE)
@@ -124,7 +124,10 @@ quick_llama <- function(prompt,
   if (any(nchar(prompt) == 0)) {
     stop("Prompt cannot be empty", call. = FALSE)
   }
-  
+
+  # Fail before any model download
+  .check_repeat_last_n(repeat_last_n)
+
   # Auto-detect n_threads if not specified
   if (is.null(n_threads)) {
     n_threads <- max(1L, parallel::detectCores() - 1L)

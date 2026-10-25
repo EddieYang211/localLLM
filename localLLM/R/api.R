@@ -96,6 +96,12 @@ model_load <- function(model_path, cache_dir = NULL, n_gpu_layers = 0L, use_mmap
                        use_mlock = FALSE, show_progress = TRUE, force_redownload = FALSE, 
                        verify_integrity = TRUE, check_memory = TRUE, hf_token = NULL, verbosity = 1L) {
   .ensure_backend_loaded()
+  if (!is.logical(use_mmap) || length(use_mmap) != 1L || is.na(use_mmap)) {
+    stop("use_mmap must be TRUE or FALSE", call. = FALSE)
+  }
+  if (!is.logical(use_mlock) || length(use_mlock) != 1L || is.na(use_mlock)) {
+    stop("use_mlock must be TRUE or FALSE", call. = FALSE)
+  }
   verbosity <- as.integer(verbosity)
   quiet_state <- .localllm_set_quiet(verbosity < 0L)
   on.exit(.localllm_restore_quiet(quiet_state), add = TRUE)
@@ -106,7 +112,9 @@ model_load <- function(model_path, cache_dir = NULL, n_gpu_layers = 0L, use_mmap
   if (is.null(resolved_path)) {
     stop("Model selection was cancelled. Provide a specific path or URL to continue.", call. = FALSE)
   }
-  
+  # R file functions expand "~" but the C backend does not
+  resolved_path <- path.expand(resolved_path)
+
   # Check memory availability before loading
   if (check_memory) {
     .check_model_memory_requirements(resolved_path)
@@ -387,7 +395,7 @@ model_metadata <- function(model) {
 #' @param top_p Top-p (nucleus) sampling (default: 1.0). Probability threshold
 #'   for token selection.
 #' @param temperature Sampling temperature (default: 0.0). Set to 0 for greedy decoding. Higher values increase creativity
-#' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable
+#' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable. Must be non-negative
 #' @param penalty_repeat Repetition penalty strength (default: 1.0). Values >1 discourage repetition. Set to 1.0 to disable
 #' @param seed Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output
 #' @param clean If TRUE, strip common chat-template control tokens from the generated text (default: FALSE).
@@ -434,6 +442,7 @@ generate <- function(context, prompt, max_tokens = 100L, top_k = 40L, top_p = 1.
   if (!inherits(context, "localllm_context")) {
     stop("Expected a localllm_context object", call. = FALSE)
   }
+  .check_repeat_last_n(repeat_last_n)
 
   # Apply verbosity before any C calls. Matches the convention used by
   # model_load() and context_create(): integer level (0-3), negative for silent.
@@ -510,7 +519,7 @@ generate <- function(context, prompt, max_tokens = 100L, top_k = 40L, top_p = 1.
 #' @param top_p Top-p (nucleus) sampling (default: 1.0). Probability threshold
 #'   for token selection.
 #' @param temperature Sampling temperature (default: 0.0). Set to 0 for greedy decoding. Higher values increase creativity
-#' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable
+#' @param repeat_last_n Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable. Must be non-negative
 #' @param penalty_repeat Repetition penalty strength (default: 1.0). Values >1 discourage repetition. Set to 1.0 to disable
 #' @param seed Random seed for reproducible generation (default: 1234). Use positive integers for deterministic output
 #' @param progress Show a console progress bar while batches run. Defaults to
@@ -543,6 +552,7 @@ generate_parallel <- function(context, prompts, max_tokens = 100L, top_k = 40L, 
   if (!inherits(context, "localllm_context")) {
     stop("Expected a localllm_context object", call. = FALSE)
   }
+  .check_repeat_last_n(repeat_last_n)
 
   # Apply verbosity before any C calls. Matches the convention used by
   # model_load() and context_create(): integer level (0-3), negative for silent.
@@ -954,6 +964,21 @@ list_cached_models <- function(cache_dir = NULL) {
   .download_with_retry(model_url, cache_path, show_progress, hf_token = hf_token)
   
   .localllm_message("Model downloaded successfully!")
+}
+
+#' Validate repeat_last_n
+#'
+#' Negative values used to mean "whole context" in llama.cpp but are now silently
+#' clamped to 0 (penalty disabled) by the backend, so they are rejected here.
+#' @param repeat_last_n Value passed by the user
+#' @noRd
+.check_repeat_last_n <- function(repeat_last_n) {
+  if (!is.numeric(repeat_last_n) || length(repeat_last_n) != 1L ||
+      is.na(repeat_last_n) || repeat_last_n < 0) {
+    stop("repeat_last_n must be a single non-negative number (0 disables the repetition penalty)",
+         call. = FALSE)
+  }
+  invisible(TRUE)
 }
 
 #' Resolve model path (download if needed)
