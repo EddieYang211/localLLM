@@ -30,15 +30,61 @@ install.packages("localLLM")
 packageVersion("localLLM")
 ```
 
-On older R releases, CRAN may serve an older pre-built binary package even
-when a newer source release is available. If `packageVersion("localLLM")`
-is older than the version shown on CRAN, install from source:
+#### If CRAN gives you an older version
+
+CRAN builds pre-compiled (binary) packages only for the current R release and the
+previous one. On an older R, `install.packages()` therefore installs the last binary
+that was built for that R version, which can be older than the current localLLM
+release. For example, on R 4.4, CRAN's Windows and Apple Silicon binaries stopped at
+localLLM 1.2.1, so `install.packages("localLLM")` could not install 1.3.0 there.
+
+If `packageVersion("localLLM")` is older than the version shown on
+[CRAN](https://cran.r-project.org/package=localLLM), either update R (recommended),
+or install the current version from source:
 
 ```{r}
 options(download.file.method = "libcurl")
 install.packages("localLLM", type = "source")
 packageVersion("localLLM")
 ```
+
+Installing from source compiles the package's C++ code, so you need a compiler
+toolchain: [Rtools](https://cran.r-project.org/bin/windows/Rtools/) on Windows,
+the Xcode Command Line Tools on macOS (`xcode-select --install` in the Terminal), or
+the usual build tools (`build-essential` or similar) on Linux.
+
+#### From GitHub
+
+To get a version that is not on CRAN yet, install the package from GitHub. The R
+package lives in the `localLLM` subdirectory of the repository, so pass `subdir`:
+
+```{r}
+# install.packages("remotes")
+
+# A specific release (recommended), e.g. v1.4.0
+remotes::install_github("EddieYang211/localLLM@v1.4.0", subdir = "localLLM")
+
+# The latest development version
+remotes::install_github("EddieYang211/localLLM", subdir = "localLLM")
+```
+
+This also compiles from source and needs the same toolchain as above. Each package
+version downloads its matching backend in Step 2. If `install_localLLM()` cannot find
+the backend for a development version, the backend for that version has not been
+published yet; install a release tag instead.
+
+#### A specific older version
+
+The package version affects the output: a newer localLLM or backend can change results
+for the same model, prompt and seed. To reproduce an analysis that used an older
+version, install that exact version:
+
+```{r}
+remotes::install_version("localLLM", version = "1.3.0")  # from the CRAN archive
+```
+
+Then run Step 2, which installs the backend matching that version. See the
+*Reproducible Output* vignette for details.
 
 ### Step 2: Install the backend library
 

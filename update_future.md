@@ -378,9 +378,33 @@ for (int slot_idx : slots_pending_reassign) {
 
 ---
 
-## Bug Risk: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models (Priority: MEDIUM) — TEST AFTER BACKEND UPGRADE
+## Bug: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models (Priority: HIGH) — ✅ FIXED 2026-10-24 (`e71499a`, branch `backend-b11869`)
 
-**Found**: 2026-10-24, by code reading during the b11869 upgrade analysis. **Not yet reproduced.**
+**Found**: 2026-10-24, by code reading during the b11869 upgrade analysis. **Reproduced the same day** with LFM2-350M (`lfm2`, hybrid), Q4_K_M, on macOS Metal. It happens **identically on b8766 (1.3.0 + PR #7) and on b11869**, so current users are affected.
+
+**Reproduction results** (4 prompts, `temperature = 0`, each result compared with `generate()` on the same prompt):
+
+| Prompt set | `n_seq_max = 4` (3 slots) | `n_seq_max = 5` (4 slots) |
+|---|---|---|
+| 4 identical prompts | 4/4 `[ERROR] Failed to decode prompt tokens` | 4/4 `[ERROR]` |
+| 4 prompts with a 34-token shared system prompt | 1/4 `[ERROR]` (the prompt on the reused slot) | 0/4, all match `generate()` |
+| 4 unrelated prompts (4-token shared template header) | 1/4 `[ERROR]` (the prompt on the reused slot) | 0/4, all match `generate()` |
+| 12 unrelated short prompts | 0/12 (with `max_tokens` 20, 30 and 60) | — |
+
+The backend log for each failure is `init: the tokens of sequence 1 in the input batch have inconsistent sequence positions … X = n_prompt-1 … Y = n_prompt-1`.
+
+**Root cause (found 2026-10-24 by instrumenting the backend)**: there is only **one** cause, the partial `seq_rm` described below. The apparent second "reused slot" failure mode was a misreading. R's `generate_parallel()` splits prompts into C calls of `per_call_capacity = n_seq_max - 1` prompts each (`api.R`), so 4 prompts with `n_seq_max = 4` become calls of 3 + 1. In the **1-prompt call**, the shared prefix is the whole prompt, which triggers the `prompt == prefix` path. The debug log shows `partial seq_rm(1, n_prompt-1, -1) -> 0` followed by the decode failure. The 12-prompt test split evenly into 4 × 3, so it never hit the path.
+
+The partial-`seq_rm` path is therefore hit whenever, inside one C call, the shared prefix covers a whole prompt:
+- the call contains a **single prompt**: `generate_parallel()` with one prompt; any leftover batch where `length(prompts) %% (n_seq_max - 1) == 1`; and **every** call when `n_seq_max <= 2`;
+- **identical prompts**;
+- one prompt is a token-prefix of all the others.
+
+Dense models (SmolLM2, Qwen2.5, Qwen3, Gemma 4) never fail, because their KV cache supports partial removal. The `slots(seq_capacity)` / `seq_id = slot_idx + 1` layout could exceed `n_seq_max - 1`, but the R-side batching keeps it in range, so it is not a live bug.
+
+**Recommended fix**: cap `shared_prefix_len` at `min(n_prompt) - 1` across the call, so seq 0 never holds a whole prompt and every slot keeps at least one suffix token. Then no partial `seq_rm` is ever needed, prefix sharing still works for recurrent/hybrid models, and the `prompt == prefix` special case plus the partial `seq_rm` can be deleted. The two alternatives listed below (per-slot fallback, or disabling sharing for these models) are no longer needed.
+
+**Original analysis** (failure mode 1):
 
 **Problem**: If a prompt's tokens consist entirely of the shared prefix, `generate_parallel()` copies seq 0's full prefix KV into the slot (`llama_memory_seq_cp(mem, 0, slot.seq_id, -1, -1)`). It then calls a **partial** `llama_memory_seq_rm(mem, slot.seq_id, slot.prefix_len, -1)` to drop the last position, so that the final token can be re-decoded to produce logits. Recurrent/hybrid memory cannot erase part of a sequence's state. The call returns `false` without changing the cache, and **we ignore the return value**.
 
@@ -388,7 +412,7 @@ for (int slot_idx : slots_pending_reassign) {
 
 **Why it fails** (verified in b11869 `src/llama-memory-recurrent.cpp`, `seq_rm`): partial rollback is only possible through per-token snapshots, bounded by the new context param `n_rs_seq`. Its default is 0 and we don't set it. Even with snapshots, rollback is refused when the state cell is shared by several sequences, which it always is right after `seq_cp(0 → slot)`. `llama_memory_hybrid::seq_rm` tries the recurrent part first and returns `false` if that fails.
 
-**Expected symptom** (to confirm): the suffix decode re-submits position `n_prompt - 1`, which still exists in that sequence, so `llama_decode` rejects the batch. That prompt returns `"[ERROR] ..."` instead of text, without crashing R. With identical prompts, every result would be an error.
+**Symptom** (confirmed 2026-10-24): the suffix decode re-submits position `n_prompt - 1`, which still exists in that sequence, so `llama_decode` rejects the batch. That prompt returns `"[ERROR] ..."` instead of text, without crashing R. With identical prompts, every result would be an error.
 
 **Scope — not new with the upgrade**: b8766 (1.3.0) already supports 18 recurrent/hybrid archs. Recurrent: `mamba`, `mamba2`, `rwkv6`, `rwkv6qwen2`, `rwkv7`, `arwkv7`. Hybrid: `jamba`, `falcon-h1`, `plamo2`, `granitehybrid`, `lfm2`, `lfm2moe`, `nemotron_h`, `nemotron_h_moe`, `qwen3next`, `kimi-linear`, `qwen35`, `qwen35moe`. This includes the popular Qwen3.5 family. b11869 adds 6 more hybrid archs: `bailingmoe3`, `kimi-k3`, `glm5-next`, `qwen4exp`, `deepseek4`, `minimax-01`. Current 1.3.0 users may therefore already be affected.
 
@@ -510,7 +534,7 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 3. **`repeat_last_n = -1` now silently means "disabled"**, where it used to mean "whole context" (`a6aa6f545`; values are clamped to ≥0). We never documented -1. Consider rejecting negatives in R.
 4. **Metal flash-attention parameters are now tuned per chip** (`f280b2698` + M3 Max/M4 Pro/M5 tunings). Same-machine reproducibility is unaffected, but cross-chip identical output becomes less likely.
 5. **Bug fixes we inherit**: Metal MoE-reduce fusion race (`098ce526b`), ggml-cpu heap corruption (`2f539596c`), and several KV-cache restore/rollback fixes for MoE/hybrid models.
-6. **Caveat (pre-existing, not caused by the upgrade)**: prefix sharing calls a partial `llama_memory_seq_rm()` that recurrent/hybrid memory refuses, and we ignore the return value. b8766 already loads 18 such archs (incl. Qwen3.5), and b11869 adds 6 more. See **"Bug Risk: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models"** above for the trigger, the test plan, and a candidate fix. Run that test after the upgrade, before advertising new-model support.
+6. **Caveat (pre-existing, not caused by the upgrade)**: prefix sharing calls a partial `llama_memory_seq_rm()` that recurrent/hybrid memory refuses, and we ignore the return value. b8766 already loads 18 such archs (incl. Qwen3.5), and b11869 adds 6 more. See **"Bug: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models"** above (confirmed 2026-10-24) for the trigger, the test plan, and a candidate fix. Run that test after the upgrade, before advertising new-model support.
 
 ### New capabilities
 
@@ -521,6 +545,97 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - **GPU cache for MoE experts kept in host memory** (`moe_cache_size`, experimental).
 - The new `llama_batch_ext` API. Migrating is optional for now and should be its own task once the legacy API is formally deprecated.
 
-### Recommended upgrade order
+### Upgrade plan & status — release 1.4.0 (updated 2026-10-24)
 
-1. C bridge fixes 1–4 → 2. CMake fixes 5–7 → 3. local macOS build + A/B regression (SmolLM2-135M, Qwen2.5-0.5B, Qwen3-4B; `generate()` and `generate_parallel()`; seq == par) → 4. CI fixes 8–9 → 5. full release build on all 7 platforms + `smoke-test.yml` → 6. bump `.lib_version` in `install.R`, update NEWS (PR #7 + backend), and submit to CRAN.
+**Decisions**: the next release is **1.4.0** (not 1.3.1). It bundles the backend upgrade, PR #7, the hybrid-model fix and the low-risk fixes below. `smoke-test.yml` is strengthened to run a real model. The 7-platform CI build is tested with a GitHub **pre-release** (`v1.4.0-rcN`). `install.R` keeps pointing at `v1.3.0` until Phase 4, so users are unaffected. All work happens on branch `backend-b11869`.
+
+**Phase 0 — Preparation ✅ DONE**
+- [x] Docs committed on master (`744d42c`, pushed; R-CMD-check + Test Coverage green).
+- [x] Branch `backend-b11869` created; submodule pinned to b11869 (`38e9493`).
+
+**Phase 1 — Local adaptation + regression ✅ DONE** (`d9f0bc7`, `5770161`)
+- [x] C bridge fixes 1–4 and CMake fixes 5–7, plus one found while building: the generated `ggml-version.h` include dir, replacing the `GGML_VERSION`/`GGML_COMMIT` `-D` defines.
+- [x] Builds on macOS arm64 (Metal) without warnings; same 37 `localllm_*` exports. The dylib grew 7.0 → 13.5 MB, mostly the embedded Metal library (0.6 → 5.2 MB).
+- [x] A/B against b8766 + PR #7 at temp 0: SmolLM2-135M, Qwen2.5-0.5B, Qwen3-4B and Gemma-4-E2B give **byte-identical** outputs and identical prompt tokens, seq == par, no leaks or empties. Qwen3-4B parallel 32.9 → 25.4 s.
+- [x] `load_mode` mapping verified for all 4 `use_mmap`/`use_mlock` combinations.
+- [x] Hybrid-model bug reproduced (pre-existing, see "Bug: `generate_parallel()` Prefix Sharing on Recurrent/Hybrid Models").
+- [ ] *Optional*: exercise the Gemma 4 pre-closed-thinking strip. E2B's template does not pre-close, so it needs a model that does, e.g. 26B-A4B.
+
+**Phase 2 — Bug fixes ✅ DONE**
+- [x] 2.1 **Hybrid prefix sharing (HIGH)** ✅ FIXED (`e71499a`):
+  - [x] (a) Root cause, found by instrumenting: there is one cause, the partial `seq_rm` when the shared prefix covers a whole prompt. It is triggered by single-prompt C calls (including R's leftover batches), by identical prompts, and by every call when `n_seq_max <= 2`.
+  - [x] (b) Fix: llama.cpp server's rule. Shared prefix ≤ `min(n_prompt) - 1`, no sharing for a single prompt; the `prompt == prefix` branch and the partial `seq_rm` were removed.
+  - [x] (c) Verified on 12 scenarios × 6 models:
+    - LFM2-350M and Qwen3.5-0.8B: errors went from 25/37 to 0/37, and all outputs equal `generate()`.
+    - The 4 dense models: byte-identical to before the fix (39/39 each), and equal to `generate()`.
+    - ag_news benchmark (adapted `benchmark_parallel.R`: 100 prompts, shared system prompt, `n_seq_max = 10`, so 11×9 + one 1-prompt leftover batch):
+      - Fix vs pre-fix: `generate_parallel()` output identical 100/100 and timing unchanged (Gemma-4-E2B 28.0 → 28.0 s; Qwen3-4B 44.8 → 46.0 s, within noise).
+      - Backend upgrade b8766 → b11869: parallel is **~35% faster** (Gemma-4-E2B 43.9 → 28.0 s, speedup over sequential 2.10× → 3.22×; Qwen3-4B 68.3 → 44.8 s, 2.86× → 4.37×), and sequential is unchanged.
+      - par == seq is 100/100 on b11869. On b8766, one Gemma-4-E2B prompt diverged in parallel mode (batch-composition numerics).
+- [x] 2.2 **Small fixes** ✅ (`9ba311c`):
+  - [x] Add `export(model_metadata)` to `NAMESPACE`.
+  - [x] `model_load()` applies `path.expand()` to the resolved path. Covers `"~/x.gguf"` and a `cache_dir` under `~`, since R's `file.exists()` expands `~` but C does not.
+  - [x] Reject negative / NA / non-scalar `repeat_last_n` in `generate()`/`generate_parallel()`; `quick_llama()` checks before any model download.
+  - [x] `use_mmap`/`use_mlock` must be TRUE or FALSE.
+  - The Rd files were edited by hand to match the roxygen comments. A dry run on 2026-10-24 showed roxygen2 8.0.0 regenerates all 34 Rd files **byte-identical** to these (so the hand edits match). Its only change is in DESCRIPTION: `RoxygenNote: 7.3.3` → `Config/roxygen2/version: 8.0.0`. Running roxygen normally is safe.
+- [x] 2.3 `tests/testthat/test-param-validation.R`: 17 expectations, backend mocked, CRAN-safe. Full suite on the dev package: 65 tests / 216 expectations, 0 failures, 16 skips (pre-existing). End-to-end check with the real backend passed.
+- [x] 2.4 Backend rebuilt with the hybrid fix and regression re-run (12 scenarios × 6 models + ag_news benchmark). The R-side fixes do not touch generation paths.
+- [x] 2.5 **NAMESPACE now generated by roxygen2** ✅ (`3dd8d56`):
+  - The package-level `@useDynLib`/`@importFrom` tags were added in `zzz.R`. The generated NAMESPACE is equivalent to the hand-written one (same 41 directives).
+  - The Rd files are unchanged; `hardware_profile.Rd` stays manual. DESCRIPTION: `RoxygenNote` → `Config/roxygen2/version: 8.0.0`.
+  - `R CMD check --as-cran`: 1 NOTE (Date field over a month old; fixed by 4.2).
+  - From now on, regenerate with `roxygen2::roxygenise()` and never hand-edit NAMESPACE.
+- Decision (2026-10-24): negative `repeat_last_n` **stays an error**. We will not map `-1` → `n_ctx`; it was never documented. Mention it in NEWS.
+- Noted (now fixed by G, `a2ff6c7`): at `verbosity = 0`, freeing a context when R exits printed `~llama_context: ... compute buffer size ...` and `ggml_metal_free: deallocating`. b11869 compute buffers are ~5% larger (Metal 301.8 → 317.8 MiB for Qwen3-4B, n_ctx 1024).
+
+**Phase 3 — CI + 7-platform build ✅ DONE**
+- [x] 3.1 ✅ (`b4b1760`):
+  - `release-builder.yml`: `spirv-headers` added for Linux Vulkan. Windows Vulkan is unchanged: `choco install vulkan-sdk` installs the LunarG SDK and sets `VULKAN_SDK`, which is what upstream's own Windows CI relies on (verify in rc1).
+  - `check_symbols.sh` had **never passed**, not even on b8766: `nm | grep -q` under `pipefail` gave false negatives, and the next step, `((n++))`, trips `set -e` when n is 0. Both are fixed, the check now targets `libggml-base.a`, and `libllama-common.a` is checked for existence.
+- [x] 3.2 ✅ (`b4b1760`): `smoke-test.yml` checks out the tag, builds and installs the R package from a source tarball, caches SmolLM2-135M, and runs `scripts/smoke_test.R`. That script is CPU-only and checks: special tokens, generate, parallel == sequential (incl. identical prompts and the 1-prompt leftover), no `[ERROR]`, no leaks. Locally it passes on b8766+PR7 and b11869, and **fails on the pre-PR7 backend** (negative control).
+- [x] 3.3 ✅ (2026-10-25): branch pushed; pre-release **`v1.4.0-rc1`** published from `backend-b11869` at `a02feb7`.
+  - `release-builder` run 40157492649: **all 7 builds succeeded on the first try**. Zips: macOS arm64 4.0 MB / x64 4.2 MB (was ~2 MB), Linux 4.0 MB, aarch64 3.6 MB, Linux Vulkan 14.3 MB (was 16), Windows 2.7 MB, Windows Vulkan 15.1 MB (was 19). The fixed `check_symbols.sh` passed 8/8 on Linux for the first time.
+  - macOS artifacts: `minos 13.3` (arm64 and x86_64), linked against `/usr/lib/libcurl.4.dylib`, 37 `localllm_*` exports. The CI-built arm64 dylib passed the smoke test locally, and its Metal outputs equal the local build (6/6).
+  - `smoke-test` run 40158283156 (from `backend-b11869`): **7/7 platforms passed all checks**: Linux CPU / Vulkan / aarch64, Windows CPU / Vulkan, macOS Intel / Apple Silicon. Every platform gave the same text for the sample prompt.
+  - Note: an older GitHub pre-release `v1.3.1` (2026-05-15, `a017b26`) also exists. **Keep it**: the maintainer pushed it for some small changes. Only the `v1.4.0-rcN` pre-releases are to be deleted after the final release.
+
+**Open issues found in the pre-push review (2026-10-24)**
+- [x] **A. ✅ FIXED (`a2ff6c7`). macOS CPU path built without upstream CPU flags.** On Apple, `CMakeLists.txt.custom` compiles its own copies of `ggml-cpu.c`, `ggml-cpu.cpp` and `ggml-blas.cpp` into `localllm`. These copies lack the ggml-cpu target's `-mcpu=native+dotprod+i8mm` and `-DGGML_USE_CPU_REPACK`, and they are the ones linked (`ggml_graph_compute`, `ggml_cpu_has_*`), so CPU weight repacking is off. This is pre-existing (b8766 too). Linux/Windows do not compile these copies. Experiment with the 3 sources dropped (use the upstream archives), CPU only, 4 threads, M3 Pro:
+  - Gemma-4-E2B Q4_0: 39.3 → **50.7 tok/s (+29%)**, output identical.
+  - Qwen2.5-0.5B Q4_K_M: 168 → 174 tok/s, **output differs**.
+  - Qwen3-4B Q8_0: 22.8 → 22.6 tok/s, **output differs**.
+  - Metal outputs are unchanged (6/6 seq and par on two models), and the smoke test passes.
+  - Dropping the copies matches upstream llama.cpp's own CPU results, and it would change macOS CPU-only outputs vs 1.3.0 for some quant types.
+- [ ] **B. macOS release builds use `GGML_NATIVE` (default ON)** — same as upstream's own macOS release builds, which also leave it ON (only Linux/Windows use NATIVE=OFF plus CPU variants), so this is low priority. Linux/Windows set `GGML_NATIVE=OFF`. The CPU kernels are tuned to whatever CPU the GitHub runner has, so a runner upgrade (e.g. to an M2+ with i8mm, or an Intel runner with AVX-512) could produce binaries that crash with an illegal instruction on older Macs. This is pre-existing. Consider explicit `-DGGML_NATIVE=OFF` plus baseline CPU flags for macOS.
+- [x] **F. ✅ FIXED (`a2ff6c7`): `-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3` added to both macOS CI builds. A local build with it reports minos 13.3. macOS minimum OS version used to be whatever the CI runner had.** The released 1.3.0 dylibs report `LC_BUILD_VERSION minos` **14.0** (arm64, built on macos-14) and **15.0** (x86_64, built on macos-15-intel), because `release-builder.yml` never sets `CMAKE_OSX_DEPLOYMENT_TARGET`. Intel Macs from 2017 and earlier cannot run macOS 15. The exact failure on an older OS is not verified (no older Mac available): load failure, or missing APIs at runtime. Upstream's macOS release sets `-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3` for both arches. Add the same to both macOS entries and check `otool -l … | grep minos` on the rc artifacts.
+- [x] **G. ✅ FIXED (`a2ff6c7`). Teardown logs at `verbosity = 0`.** `restore_log_callback()` reset to llama.cpp's default logger (all levels) when `model_load()`/`context_create()` returned, so contexts/models freed later by R finalizers printed `~llama_context: … compute buffer size …` (DEBUG) and `ggml_metal_free: deallocating` (INFO). Now the call's verbosity is kept, as `generate()` already did; background logging follows the most recent verbosity. At R exit after load only: verbosity 0/1 → 0 lines, 2 → 1, 3 → 4.
+- [x] C. ✅ Verified in rc1: macOS artifacts report `minos 13.3` and link `/usr/lib/libcurl.4.dylib` (not Homebrew); the duplicated ggml core sources (`ggml.c`, `gguf.cpp`, …) still link on Linux/Windows against b11869's `libggml-base.a` (they did on b8766); Windows Vulkan finds SPIRV-Headers via `VULKAN_SDK`; zip sizes.
+- [x] D. ✅ (`8f49b64`) Docs: `tokenize()` should say that special-token text such as `<|im_start|>` is now parsed as special tokens (PR #7). The example log in `reproducible-output.Rmd` shows `package_version` 1.3.0 (cosmetic).
+- [ ] E. Untested: the Gemma 4 pre-closed-thinking strip (E2B's template does not pre-close).
+
+**Phase 4 — Release ⏭ NEXT**
+- [x] 4.1 ✅ (`8f49b64`) `install.R`: `.lib_version <- "1.4.0"`, `.base_url` → `v1.4.0`.
+- [x] 4.2 ✅ (`8f49b64`) `DESCRIPTION`: Version 1.4.0, Date 2026-10-24. **Update the Date on the submission day.**
+- [x] 4.3 ✅ (`8f49b64`, reviewed by the maintainer) `NEWS.md` 1.4.0 covers:
+  - PR #7 special-token fix (credit t-davidson);
+  - the backend upgrade b8766 → b11869 and the new architectures;
+  - the hybrid-model fix and the small fixes;
+  - behaviour notes: same-seed outputs differ from 1.3.0 because of PR #7, temp 0 now uses the greedy sampler, negative `repeat_last_n` is rejected, and the `load_mode` AUTO fallback.
+- [x] 4.4 ✅ (`8f49b64`) Vignettes (plus the get-started and FAQ install-from-source / GitHub sections, and the `tokenize()` doc note):
+  - add the `reproducible-output.Rmd` disclaimer (CPU vs GPU, cross-chip Metal tuning, MoE);
+  - update model-support notes.
+- [ ] 4.5 Merge `backend-b11869` → master.
+- [ ] 4.6 Run `R CMD build` + `R CMD check --as-cran` and update `cran-comments.md`. Go through the checklist in `CRAN_POLICY_NOTES.md`.
+- [ ] 4.7 Publish the final GitHub release `v1.4.0` → CI builds the assets → `smoke-test.yml` with `v1.4.0`. This must happen **before** the CRAN submission.
+- [ ] 4.8 Submit to CRAN.
+
+**Phase 5 — After release**
+- [ ] Verify a fresh install: CRAN package → `install_localLLM()` downloads `v1.4.0` → generate.
+- [ ] Note on issue #6 / PR #7 that the fix has shipped.
+- [ ] Follow-ups for later releases:
+  - `llama_batch_ext` migration;
+  - use the Jinja prompt parts (`is_input`) so special tokens in user text are not parsed (PR #7 trade-off);
+  - `next_batch` per-token allocation and dead-code cleanup (incl. the now-unreachable `need_prompt_logit`/`priming` path);
+  - stale `custom_files/localllm_capi.cpp.backup`, the duplicate `#include <filesystem>`, and the dead `check_static_library_completeness()` / pure-glue branch in `CMakeLists.txt.custom`;
+  - `localLLM/src/liblocalllm.dylib` (a backend binary) is tracked in git. It is excluded from the tarball by `.Rbuildignore`, but it should be removed from the repo;
+  - roadmap items 1–4.

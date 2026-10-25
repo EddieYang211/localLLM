@@ -122,13 +122,13 @@ static void set_log_verbosity(int verbosity) {
     }
 }
 
-// Restore original logging
+// Called when a function that applied its own verbosity returns. Keep that verbosity for
+// the logging that happens between calls -- contexts and models are freed later from R
+// finalizers (rm() + gc(), R exit) -- instead of falling back to llama.cpp's default logger,
+// which prints every level including DEBUG. generate()/generate_parallel() never restore,
+// so this makes model_load()/context_create() behave the same way.
 static void restore_log_callback() {
-    if (original_log_callback) {
-        llama_log_set(original_log_callback, original_log_user_data);
-    } else {
-        llama_log_set(nullptr, nullptr); // Restore default behavior
-    }
+    set_log_verbosity(current_verbosity);
 }
 
 static char* string_to_c_str(const std::string& s) { 
@@ -148,11 +148,38 @@ static std::vector<llama_token> helper_tokenize(const llama_model* model, const 
     if (n < 0) { 
         throw std::runtime_error("Tokenization failed in helper."); 
     } 
-    tokens.resize(n); 
-    return tokens; 
+    tokens.resize(n);
+    return tokens;
 }
 
-LOCALLLM_API localllm_error_code localllm_backend_init(const char** error_message) { 
+// Local copy of common_batch_add(), which upstream removed (b11869) when common/
+// moved to the llama_batch_ext API. We still use the legacy llama_batch API.
+static void localllm_batch_add(struct llama_batch & batch, llama_token id, llama_pos pos,
+                               const std::vector<llama_seq_id> & seq_ids, bool logits) {
+    GGML_ASSERT(batch.seq_id[batch.n_tokens] && "llama_batch size exceeded");
+
+    batch.token   [batch.n_tokens] = id;
+    batch.pos     [batch.n_tokens] = pos;
+    batch.n_seq_id[batch.n_tokens] = seq_ids.size();
+    for (size_t i = 0; i < seq_ids.size(); ++i) {
+        batch.seq_id[batch.n_tokens][i] = seq_ids[i];
+    }
+    batch.logits  [batch.n_tokens] = logits;
+
+    batch.n_tokens++;
+}
+
+// Map the R-level use_mmap/use_mlock flags onto llama_load_mode, which replaced the
+// two bool fields in llama_model_params (b11869). The default (mmap, no mlock) maps to
+// AUTO: mmap, falling back to a plain read on devices without mmap support.
+static enum llama_load_mode localllm_load_mode(bool use_mmap, bool use_mlock) {
+    if (use_mmap) {
+        return use_mlock ? LLAMA_LOAD_MODE_MMAP_MLOCK : LLAMA_LOAD_MODE_AUTO;
+    }
+    return use_mlock ? LLAMA_LOAD_MODE_MLOCK : LLAMA_LOAD_MODE_NONE;
+}
+
+LOCALLLM_API localllm_error_code localllm_backend_init(const char** error_message) {
     try { 
         ggml_backend_load_all(); 
         llama_backend_init(); 
@@ -169,9 +196,8 @@ LOCALLLM_API void localllm_backend_free() {
 
 LOCALLLM_API localllm_error_code localllm_model_load(const char* model_path, int n_gpu_layers, bool use_mmap, bool use_mlock, localllm_model_handle* model_handle_out, const char** error_message) { 
     llama_model_params model_params = llama_model_default_params(); 
-    model_params.n_gpu_layers = n_gpu_layers; 
-    model_params.use_mmap = use_mmap; 
-    model_params.use_mlock = use_mlock; 
+    model_params.n_gpu_layers = n_gpu_layers;
+    model_params.load_mode = localllm_load_mode(use_mmap, use_mlock);
     llama_model* model = llama_model_load_from_file(model_path, model_params); 
     if (model == nullptr) { 
         set_error(error_message, std::string("Failed to load model from path: ") + model_path); 
@@ -275,8 +301,7 @@ LOCALLLM_API localllm_error_code localllm_model_load_safe(const char* model_path
         // Load the model with enhanced error handling
         llama_model_params model_params = llama_model_default_params();
         model_params.n_gpu_layers = n_gpu_layers;
-        model_params.use_mmap = use_mmap;
-        model_params.use_mlock = use_mlock;
+        model_params.load_mode = localllm_load_mode(use_mmap, use_mlock);
 
         // Suppress model-loading progress dots when verbosity < 2
         if (verbosity < 2) {
@@ -420,13 +445,15 @@ LOCALLLM_API localllm_error_code localllm_apply_chat_template(localllm_model_han
             // enable_thinking defaults to true — full output (thinking + answer) returned as-is
 
             auto params = common_chat_templates_apply(tmpls.get(), inputs);
-            std::string prompt = params.prompt;
+            // b11869: prompt is a common_chat_prompt (template/input parts); flatten it
+            std::string prompt = params.prompt.str();
 
             // If the Jinja2 template pre-closes the thinking block in the prompt
             // (e.g. Gemma 4 appends "<channel|>" immediately after opening it),
             // strip the closing tag so the model generates its own thinking content.
-            if (!params.thinking_end_tag.empty()) {
-                const std::string & end_tag = params.thinking_end_tag;
+            // b11869: a format may report several end tags; strip whichever one matches.
+            for (const std::string & end_tag : params.thinking_end_tags) {
+                if (end_tag.empty()) continue;
                 // Strip trailing whitespace/newlines before checking
                 size_t trim = prompt.find_last_not_of(" \t\n\r");
                 std::string stripped = (trim != std::string::npos) ? prompt.substr(0, trim + 1) : prompt;
@@ -438,6 +465,7 @@ LOCALLLM_API localllm_error_code localllm_apply_chat_template(localllm_model_han
                         stripped.pop_back();
                     }
                     prompt = stripped + "\n";
+                    break;
                 }
             }
 
@@ -469,7 +497,7 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
     llama_token eos_token = llama_vocab_eos(vocab);
     llama_batch batch = llama_batch_init(static_cast<int32_t>(n_tokens_in), 0, 1);
     for (size_t i = 0; i < n_tokens_in; ++i) {
-        common_batch_add(batch, static_cast<llama_token>(tokens_in[i]), static_cast<llama_pos>(i), {0}, i == n_tokens_in - 1);
+        localllm_batch_add(batch, static_cast<llama_token>(tokens_in[i]), static_cast<llama_pos>(i), {0}, i == n_tokens_in - 1);
     }
     if (llama_decode(ctx, batch) != 0) {
         llama_batch_free(batch);
@@ -599,7 +627,7 @@ LOCALLLM_API localllm_error_code localllm_generate(localllm_context_handle ctx, 
         if (text_stopped) break;
 
         llama_batch next_batch = llama_batch_init(1, 0, 1);
-        common_batch_add(next_batch, new_token, n_past, {0}, true);
+        localllm_batch_add(next_batch, new_token, n_past, {0}, true);
         if (llama_decode(ctx, next_batch) != 0) {
             llama_batch_free(next_batch);
             llama_memory_clear(mem, true);
@@ -665,6 +693,16 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             shared_prefix_len = common;
         }
     }
+    // Every prompt keeps at least one token of its own to decode (it yields the logits for
+    // the first sampled token), and a single prompt is not shared at all -- the same rule as
+    // llama.cpp's server_decision_group_tasks(). A slot therefore never needs a partial
+    // llama_memory_seq_rm(), which recurrent/hybrid memory (Mamba, LFM2, Qwen3.5, ...) refuses.
+    if (n_prompts < 2) {
+        shared_prefix_len = 0;
+    }
+    for (const auto & toks : prompt_tokens_all) {
+        shared_prefix_len = std::min(shared_prefix_len, toks.empty() ? (size_t) 0 : toks.size() - 1);
+    }
 
     llama_memory_clear(mem, true);
     bool prefix_ready = false;
@@ -673,7 +711,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
         shared_prefix_tokens.assign(prompt_tokens_all[0].begin(), prompt_tokens_all[0].begin() + shared_prefix_len);
         llama_batch prefix_batch = llama_batch_init(shared_prefix_tokens.size(), 0, 1);
         for (size_t j = 0; j < shared_prefix_tokens.size(); ++j) {
-            common_batch_add(prefix_batch, shared_prefix_tokens[j], j, {0}, j == shared_prefix_tokens.size() - 1);
+            localllm_batch_add(prefix_batch, shared_prefix_tokens[j], j, {0}, j == shared_prefix_tokens.size() - 1);
         }
 
         int32_t local_cap = batch_cap_init;
@@ -789,7 +827,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
         llama_batch batch = llama_batch_init(tokens_to_decode->size(), 0, 1);
         for (size_t j = 0; j < tokens_to_decode->size(); ++j) {
             const int position = start_pos + static_cast<int>(j);
-            common_batch_add(batch, (*tokens_to_decode)[j], position, {slot.seq_id}, j == tokens_to_decode->size() - 1);
+            localllm_batch_add(batch, (*tokens_to_decode)[j], position, {slot.seq_id}, j == tokens_to_decode->size() - 1);
         }
 
         int32_t local_cap = batch_cap_init;
@@ -894,12 +932,6 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             if (slot.n_prompt > slot.prefix_len) {
                 slot.suffix_tokens.assign(slot.full_tokens->begin() + slot.prefix_len, slot.full_tokens->end());
             }
-            if (prefix_ready && slot.n_prompt > 0 && slot.prefix_len == slot.n_prompt) {
-                // Ensure logits are produced by decoding the final token instead of re-decoding
-                slot.prefix_len = slot.n_prompt - 1;
-                slot.suffix_tokens.clear();
-                slot.suffix_tokens.push_back(slot.full_tokens->back());
-            }
             slot.n_past = slot.prefix_len;
             slot.n_decoded = 0;
             slot.next_pos = slot.n_prompt;
@@ -939,12 +971,6 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
             // Seq 0 contains only prefix tokens, so full-range copy = prefix copy.
             if (prefix_ready && slot.prefix_len > 0) {
                 llama_memory_seq_cp(mem, 0, slot.seq_id, -1, -1);
-                // Full copy includes shared_prefix_len positions, but slot.prefix_len
-                // may be smaller (e.g. entire prompt = prefix → prefix_len reduced by 1).
-                // Remove excess positions so suffix decode doesn't collide.
-                if (slot.prefix_len < (int32_t)shared_prefix_len) {
-                    llama_memory_seq_rm(mem, slot.seq_id, slot.prefix_len, -1);
-                }
             }
 
             if (!decode_prompt_tokens(slot)) {
@@ -1043,7 +1069,7 @@ LOCALLLM_API localllm_error_code localllm_generate_parallel(
                     slot.next_pos++;
                 }
 
-                common_batch_add(gen_batch, token_to_feed, pos, {slot.seq_id}, true);
+                localllm_batch_add(gen_batch, token_to_feed, pos, {slot.seq_id}, true);
                 batch_slots.push_back(i);
             }
 

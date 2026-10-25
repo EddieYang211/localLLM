@@ -23,6 +23,12 @@ Converts text into a sequence of integer token IDs that the language model can p
 This is the first step in text generation, as models work with tokens rather than raw text.
 Different models may use different tokenization schemes (BPE, SentencePiece, etc.).
 }
+\details{
+Special-token text is parsed: chat-template markers such as \code{<|im_start|>} map to
+their special token IDs (since localLLM 1.4.0), which is what chat-templated prompts
+need. This also applies to such strings inside your own data, where they act as
+control tokens.
+}
 \examples{
 \dontrun{
 # Load model

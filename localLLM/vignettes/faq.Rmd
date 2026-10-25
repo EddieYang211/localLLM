@@ -17,6 +17,24 @@ knitr::opts_chunk$set(
 
 ## Installation Issues
 
+### `install.packages()` installs an older version of localLLM
+
+**Problem**: `packageVersion("localLLM")` reports an older version than the one listed on
+CRAN, even right after `install.packages("localLLM")`.
+
+**Cause**: CRAN builds pre-compiled binaries only for the current and the previous R
+release. On an older R, you get the last binary built for that R version. For example,
+on R 4.4 the Windows and Apple Silicon binaries stopped at localLLM 1.2.1.
+
+**Solution**: Update R, or install the current version from source or from GitHub
+(this needs a compiler toolchain; see the *Get Started* vignette):
+
+```{r}
+install.packages("localLLM", type = "source")
+# or a specific GitHub release:
+remotes::install_github("EddieYang211/localLLM@v1.4.0", subdir = "localLLM")
+```
+
 ### "Backend library is not loaded" error
 
 **Problem**: You see the error "Backend library is not loaded. Please run install_localLLM() first."

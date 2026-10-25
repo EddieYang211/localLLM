@@ -36,12 +36,17 @@ check_sym() {
     
     local found_count=0
     local total_count=${#required_symbols[@]}
+    # Read nm output once: piping nm into `grep -q` under pipefail reports a miss
+    # whenever grep exits early and nm gets SIGPIPE.
+    local nm_out
+    nm_out=$(nm -g "$lib_path" 2>/dev/null || true)
     
     echo "Required symbols check:"
     for symbol in "${required_symbols[@]}"; do
-        if nm -g "$lib_path" 2>/dev/null | grep -q "$symbol"; then
+        # Defined symbols only (T/D/B/S/R), with or without the macOS leading underscore
+        if grep -Eq "[[:space:]][TDBSR][[:space:]]_?${symbol}\$" <<< "$nm_out"; then
             echo -e "  ✅ $symbol"
-            ((found_count++))
+            found_count=$((found_count + 1))  # ((x++)) returns 1 when x is 0 and trips set -e
         else
             echo -e "  ❌ $symbol"
         fi
@@ -65,19 +70,26 @@ check_all_libs() {
     
     echo -e "${YELLOW}=== Static Library Symbol Verification ===${NC}\n"
     
-    # Check core libraries
-    local libs=(
-        "$build_dir/ggml/src/libggml.a"
-        "$build_dir/src/libllama.a"
-        "$build_dir/common/libcommon.a"
-    )
+    # Since llama.cpp b11869 the ggml/gguf core lives in libggml-base.a (libggml.a only
+    # holds the backend registry) and common/ builds libllama-common.a.
+    if ! check_sym "$build_dir/ggml/src/libggml-base.a"; then
+        all_passed=false
+    fi
+    echo ""
     
+    local libs=(
+        "$build_dir/src/libllama.a"
+        "$build_dir/common/libllama-common.a"
+    )
     for lib in "${libs[@]}"; do
-        if ! check_sym "$lib"; then
+        if [[ -f "$lib" ]]; then
+            echo -e "  ✅ $(basename "$lib") present"
+        else
+            echo -e "${RED}  ❌ $(basename "$lib") not found: $lib${NC}"
             all_passed=false
         fi
-        echo ""
     done
+    echo ""
     
     if $all_passed; then
         echo -e "${GREEN}🎉 All static libraries passed symbol verification!${NC}"

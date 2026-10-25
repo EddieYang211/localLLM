@@ -51,7 +51,7 @@ output.}
 
 \item{temperature}{Sampling temperature (default: 0.0). Higher values increase creativity}
 
-\item{repeat_last_n}{Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable}
+\item{repeat_last_n}{Number of recent tokens to consider for repetition penalty (default: 0). Set to 0 to disable. Must be non-negative}
 
 \item{penalty_repeat}{Repetition penalty strength (default: 1.0). Set to 1.0 to disable}
 
