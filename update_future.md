@@ -577,7 +577,7 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
   - [x] `model_load()` applies `path.expand()` to the resolved path. Covers `"~/x.gguf"` and a `cache_dir` under `~`, since R's `file.exists()` expands `~` but C does not.
   - [x] Reject negative / NA / non-scalar `repeat_last_n` in `generate()`/`generate_parallel()`; `quick_llama()` checks before any model download.
   - [x] `use_mmap`/`use_mlock` must be TRUE or FALSE.
-  - The Rd files were edited by hand to match the roxygen comments, to avoid regenerating all Rd files with roxygen2 8.0.0 (they were generated with 7.3.3).
+  - The Rd files were edited by hand to match the roxygen comments. A dry run on 2026-10-24 showed roxygen2 8.0.0 regenerates all 34 Rd files **byte-identical** to these (so the hand edits match). Its only change is in DESCRIPTION: `RoxygenNote: 7.3.3` → `Config/roxygen2/version: 8.0.0`. Running roxygen normally is safe.
 - [x] 2.3 `tests/testthat/test-param-validation.R`: 17 expectations, backend mocked, CRAN-safe. Full suite on the dev package: 65 tests / 216 expectations, 0 failures, 16 skips (pre-existing). End-to-end check with the real backend passed.
 - [x] 2.4 Backend rebuilt with the hybrid fix and regression re-run (12 scenarios × 6 models + ag_news benchmark). The R-side fixes do not touch generation paths.
 - Noted, not fixed (pre-existing, also on b8766): at `verbosity = 0`, freeing a context when R exits still prints `~llama_context: ... compute buffer size ...` and `ggml_metal_free: deallocating`. b11869 compute buffers are ~5% larger (Metal 301.8 → 317.8 MiB for Qwen3-4B, n_ctx 1024).
