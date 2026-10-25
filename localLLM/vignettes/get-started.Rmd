@@ -73,6 +73,19 @@ version downloads its matching backend in Step 2. If `install_localLLM()` cannot
 the backend for a development version, the backend for that version has not been
 published yet; install a release tag instead.
 
+#### A specific older version
+
+The package version affects the output: a newer localLLM or backend can change results
+for the same model, prompt and seed. To reproduce an analysis that used an older
+version, install that exact version:
+
+```{r}
+remotes::install_version("localLLM", version = "1.3.0")  # from the CRAN archive
+```
+
+Then run Step 2, which installs the backend matching that version. See the
+*Reproducible Output* vignette for details.
+
 ### Step 2: Install the backend library
 
 The `install_localLLM()` function installs the separate backend library used by

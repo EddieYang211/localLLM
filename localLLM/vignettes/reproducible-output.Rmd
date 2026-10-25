@@ -283,6 +283,41 @@ automatically; you can also report it directly:
 packageVersion("localLLM")
 ```
 
+### 7. Reproduce Results from an Older Version
+
+To reproduce results that were produced with an older localLLM version, install that
+exact version and then its matching backend. Each package version downloads the backend
+it was released with:
+
+```{r}
+# install.packages("remotes")
+
+# From the CRAN archive, e.g. version 1.3.0
+remotes::install_version("localLLM", version = "1.3.0")
+
+# Or from the matching GitHub release tag
+remotes::install_github("EddieYang211/localLLM@v1.3.0", subdir = "localLLM")
+
+library(localLLM)
+install_localLLM()          # downloads the backend for this package version
+packageVersion("localLLM")  # confirm the version
+```
+
+A few things to keep in mind:
+
+- Both commands build the package from source, so you need a compiler toolchain (see
+  the *Get Started* vignette).
+- Backends are stored per version, so going back to a newer version later does not
+  download its backend again.
+- To keep your current version installed as well, install the older one into a separate
+  library with `remotes::install_version(..., lib = "path/to/lib")`, and load it with
+  `library(localLLM, lib.loc = "path/to/lib")` in a fresh R session. A project-level
+  tool such as [renv](https://rstudio.github.io/renv/) also works.
+- Use the same model file and generation settings. For bit-identical output, also use
+  the same hardware (see below).
+- An older version reproduces its own behavior, including any bugs that were fixed
+  later (see `NEWS.md`).
+
 ## What Reproducibility Covers
 
 Repeated runs give identical output when all of the following are the same:
