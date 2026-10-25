@@ -97,6 +97,11 @@
 #' @author Eddie Yang and Yaosheng Xu <xu2009@purdue.edu>
 #' @references \url{https://github.com/EddieYang211/localLLM}
 #' @keywords package
+#' @useDynLib localLLM, .registration = TRUE
+#' @importFrom Rcpp evalCpp
+#' @importFrom tools R_user_dir
+#' @importFrom parallel detectCores
+#' @importFrom utils download.file unzip askYesNo
 #' @name localLLM-package
 #' @aliases localLLM
 #' @docType package
