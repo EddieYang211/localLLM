@@ -656,10 +656,12 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - [x] Fix + PR #9 (`fix-download-progress`): `c2a7a00` fix, `142b168` plan. PR CI 7/7 green.
 - [x] Version bump on the same branch: DESCRIPTION 1.4.1 / Date 2026-11-02, `install.R` -> `v1.4.1`, README / vignette `install_github(...@v1.4.1)` examples, smoke-test default tag, NEWS 1.4.1 (notes 1.4.0 was GitHub-only), `cran-comments.md`.
 - [x] Local `R CMD check --as-cran localLLM_1.4.1.tar.gz` (`_R_CHECK_FORCE_SUGGESTS_=false`): **Status OK**, same two INFOs as 1.4.0.
-- [ ] Maintainer merges PR #9.
-- [ ] Publish GitHub release `v1.4.1` from master -> release-builder 7/7 -> smoke-test 7/7 (dispatch with `v1.4.1`). Keep `v1.4.0` and `v1.3.1`.
-- [ ] Check on a CI artifact that `download_model(show_progress = FALSE)` is silent.
-- [ ] Rebuild the tarball from master after the merge, then upload it to win-builder (R-devel, R-release). The 1.4.0 win-builder results no longer apply.
+- [x] PR #9 merged (merge commit `a600523`, 2026-11-02).
+- [x] GitHub release **`v1.4.1`** published from master `a600523` (Latest). release-builder run 41509954716: 7/7 builds. smoke-test run 41511799942: **7/7 platforms passed**. `v1.4.0` and `v1.3.1` are kept. (`gh release create --target` needs the full SHA; a short one gives HTTP 422.)
+- [x] Real flow on this Mac: the 1.4.1 tarball goes into a temp lib, then `install_localLLM()` downloads the v1.4.1 macOS arm64 backend (minos 13.3). Downloading SmolLM2-135M Q8_0 gives 0 progress lines with `show_progress = FALSE` and 21 with TRUE, the same file size both ways, and `quick_llama()` answers "The capital of France is Paris."
+- [x] Tarball rebuilt from master `a600523` (sha256 `5cb86d32...`). Its content is identical to the checked branch tarball except for the `Packaged:` line. Uploaded to win-builder R-devel and R-release (2026-11-02, FTP 226 for both).
+- [x] Post-merge R-CMD-check #136 (run 41509752864) failed in **Extended tests** (ubuntu + macOS) because it ran at 19:27, before the `v1.4.1` release existed: `install_localLLM()` got HTTP 404. After the release it was re-run and passed (attempt 3, all green). The 1.4.0 merge run (40160431616) failed the same way and was never re-run. **Release checklist:** Extended tests run only on push, so each version-bump merge fails them until the release assets exist. After release-builder finishes, run `gh run rerun <merge R-CMD-check id> --failed`.
+- [ ] Wait for the win-builder emails. If OK, add them to the test environments in `cran-comments.md`.
 - [ ] Maintainer submits 1.4.1 via the CRAN web form.
 
 **Phase 5 — After release** (GitHub installs of v1.4.0 already work: `remotes::install_github("EddieYang211/localLLM@v1.4.0", subdir = "localLLM")`)
