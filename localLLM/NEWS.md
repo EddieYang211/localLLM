@@ -1,3 +1,9 @@
+# localLLM (development version)
+
+## Bug Fixes
+
+- **`download_model(show_progress = FALSE)` no longer prints download progress.** The backend ignored the argument and always printed progress, for `model_load()` with a URL too. With `show_progress = TRUE`, progress is now printed once per 5% step. It used to repeat each step many times, which wrote megabytes to Rscript logs and knitr output when a download sat at 0% before the first 5%. Needs the next backend release.
+
 # localLLM 1.4.0
 
 ## Backend
