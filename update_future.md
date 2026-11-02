@@ -661,8 +661,8 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - [x] Real flow on this Mac: the 1.4.1 tarball goes into a temp lib, then `install_localLLM()` downloads the v1.4.1 macOS arm64 backend (minos 13.3). Downloading SmolLM2-135M Q8_0 gives 0 progress lines with `show_progress = FALSE` and 21 with TRUE, the same file size both ways, and `quick_llama()` answers "The capital of France is Paris."
 - [x] Tarball rebuilt from master `a600523` (sha256 `5cb86d32...`). Its content is identical to the checked branch tarball except for the `Packaged:` line. Uploaded to win-builder R-devel and R-release (2026-11-02, FTP 226 for both).
 - [x] Post-merge R-CMD-check #136 (run 41509752864) failed in **Extended tests** (ubuntu + macOS) because it ran at 19:27, before the `v1.4.1` release existed: `install_localLLM()` got HTTP 404. After the release it was re-run and passed (attempt 3, all green). The 1.4.0 merge run (40160431616) failed the same way and was never re-run. **Release checklist:** Extended tests run only on push, so each version-bump merge fails them until the release assets exist. After release-builder finishes, run `gh run rerun <merge R-CMD-check id> --failed`.
-- [ ] Wait for the win-builder emails. If OK, add them to the test environments in `cran-comments.md`.
-- [ ] Maintainer submits 1.4.1 via the CRAN web form.
+- [x] win-builder 1.4.1: R-devel (2026-11-01 r90825 ucrt) **Status OK**; R-release (R 4.6.2) **Status OK**. Only INFO: "specified C++17". Both added to `cran-comments.md`.
+- [ ] **Maintainer submits 1.4.1** via https://cran.r-project.org/submit.html: upload the repo-root `localLLM_1.4.1.tar.gz` (sha256 `5cb86d32...`), paste `cran-comments.md` into the comment field, then confirm the email.
 
 **Phase 5 — After release** (GitHub installs of v1.4.0 already work: `remotes::install_github("EddieYang211/localLLM@v1.4.0", subdir = "localLLM")`)
 - [ ] Verify a fresh install: CRAN package → `install_localLLM()` downloads `v1.4.0` → generate.

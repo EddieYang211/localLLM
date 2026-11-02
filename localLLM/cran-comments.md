@@ -36,6 +36,8 @@ or the backend on CRAN.
 ## Test environments
 
 - macOS 26.6.2, Apple M3 Pro (arm64), R 4.6.0 — local machine
+- win-builder: Windows Server 2022 x64, R-devel (2026-11-01 r90825 ucrt) — Status: OK
+- win-builder: Windows, R-release (R 4.6.2, 2026-10-29 ucrt) — Status: OK
 - GitHub Actions: macOS (latest) R release; Windows (latest) R release;
   Ubuntu (latest) R release, R devel and R oldrel-1
 - The backend binaries for all 7 supported platforms (Linux x86_64 CPU and Vulkan,
