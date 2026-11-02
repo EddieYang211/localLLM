@@ -61,8 +61,8 @@ package lives in the `localLLM` subdirectory of the repository, so pass `subdir`
 ```{r}
 # install.packages("remotes")
 
-# A specific release (recommended), e.g. v1.4.0
-remotes::install_github("EddieYang211/localLLM@v1.4.0", subdir = "localLLM")
+# A specific release (recommended), e.g. v1.4.1
+remotes::install_github("EddieYang211/localLLM@v1.4.1", subdir = "localLLM")
 
 # The latest development version
 remotes::install_github("EddieYang211/localLLM", subdir = "localLLM")

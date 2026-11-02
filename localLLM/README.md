@@ -35,7 +35,7 @@ install.packages("localLLM", type = "source")
 
 # A GitHub release (the R package lives in the localLLM/ subdirectory)
 # install.packages("remotes")
-remotes::install_github("EddieYang211/localLLM@v1.4.0", subdir = "localLLM")
+remotes::install_github("EddieYang211/localLLM@v1.4.1", subdir = "localLLM")
 
 # The latest development version
 remotes::install_github("EddieYang211/localLLM", subdir = "localLLM")

@@ -1,6 +1,6 @@
 # localLLM Future Feature Roadmap
 
-> **Current status (2026-10-25): localLLM 1.4.0 is released on GitHub** (`v1.4.0`, Latest; llama.cpp backend **b11869**; tag at master `1e115c3`). All 7 platform backends were built and smoke-tested. **The CRAN submission is pending.** The win-builder checks (R-devel, R-release) have been uploaded and their results will arrive by email; `test_vignettes.R` passed on 2026-11-02 (66 pass / 0 fail / 3 skip). Step-by-step status: see "Upgrade plan & status — release 1.4.0" near the end of this file.
+> **Current status (2026-11-02): the CRAN submission will be 1.4.1, not 1.4.0.** 1.4.0 stays a GitHub-only release (`v1.4.0`, backend b11869). 1.4.1 adds the `download_model(show_progress = FALSE)` fix (backend-only), so it needs its own GitHub release with rebuilt backends. Steps: see "Release 1.4.1" after Phase 4 below.
 
 > Based on llama.cpp b8766 (2026-04-12) capability analysis.
 > These features are available in the llama.cpp backend and can be exposed to R users by adding bridge code.
@@ -650,6 +650,17 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
     - 5 `R CMD check --as-cran` ✅ Status OK;
     - 6 version / NEWS / `.lib_version` ✅.
   - [ ] Maintainer submits via https://cran.r-project.org/submit.html (paste `cran-comments.md` into the comment field), then confirms the email.
+
+**Release 1.4.1 (replaces 1.4.0 as the CRAN submission; decided 2026-11-02)**
+- Why not 1.4.0: the `v1.4.0` release and its binaries are already public. Re-uploading binaries under the same version would break reproducibility, and submitting 1.4.0 then 1.4.1 soon after goes against CRAN's dislike of frequent updates.
+- [x] Fix + PR #9 (`fix-download-progress`): `c2a7a00` fix, `142b168` plan. PR CI 7/7 green.
+- [x] Version bump on the same branch: DESCRIPTION 1.4.1 / Date 2026-11-02, `install.R` -> `v1.4.1`, README / vignette `install_github(...@v1.4.1)` examples, smoke-test default tag, NEWS 1.4.1 (notes 1.4.0 was GitHub-only), `cran-comments.md`.
+- [x] Local `R CMD check --as-cran localLLM_1.4.1.tar.gz` (`_R_CHECK_FORCE_SUGGESTS_=false`): **Status OK**, same two INFOs as 1.4.0.
+- [ ] Maintainer merges PR #9.
+- [ ] Publish GitHub release `v1.4.1` from master -> release-builder 7/7 -> smoke-test 7/7 (dispatch with `v1.4.1`). Keep `v1.4.0` and `v1.3.1`.
+- [ ] Check on a CI artifact that `download_model(show_progress = FALSE)` is silent.
+- [ ] Rebuild the tarball from master after the merge, then upload it to win-builder (R-devel, R-release). The 1.4.0 win-builder results no longer apply.
+- [ ] Maintainer submits 1.4.1 via the CRAN web form.
 
 **Phase 5 — After release** (GitHub installs of v1.4.0 already work: `remotes::install_github("EddieYang211/localLLM@v1.4.0", subdir = "localLLM")`)
 - [ ] Verify a fresh install: CRAN package → `install_localLLM()` downloads `v1.4.0` → generate.

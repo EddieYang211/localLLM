@@ -1,8 +1,10 @@
-# localLLM (development version)
+# localLLM 1.4.1
+
+localLLM 1.4.0 was released on GitHub only. The CRAN update from 1.3.0 is 1.4.1, which includes all of the 1.4.0 changes below. After updating the package, run `install_localLLM()` to download the 1.4.1 backend.
 
 ## Bug Fixes
 
-- **`download_model(show_progress = FALSE)` no longer prints download progress.** The backend ignored the argument and always printed progress, for `model_load()` with a URL too. With `show_progress = TRUE`, progress is now printed once per 5% step. It used to repeat each step many times, which wrote megabytes to Rscript logs and knitr output when a download sat at 0% before the first 5%. Needs the next backend release.
+- **`download_model(show_progress = FALSE)` no longer prints download progress.** The backend ignored the argument and always printed progress, for `model_load()` with a URL too. With `show_progress = TRUE`, progress is now printed once per 5% step. It used to repeat each step many times, which wrote megabytes to Rscript logs and knitr output when a download sat at 0% before the first 5%.
 
 # localLLM 1.4.0
 
