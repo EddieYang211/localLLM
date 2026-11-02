@@ -1,6 +1,6 @@
 # localLLM Future Feature Roadmap
 
-> **Current status (2026-11-02): the CRAN submission will be 1.4.1, not 1.4.0.** 1.4.0 stays a GitHub-only release (`v1.4.0`, backend b11869). 1.4.1 adds the `download_model(show_progress = FALSE)` fix (backend-only), so it needs its own GitHub release with rebuilt backends. Steps: see "Release 1.4.1" after Phase 4 below.
+> **Current status (2026-11-02): localLLM 1.4.1 was submitted to CRAN on 2026-11-02 and is waiting for review.** 1.4.0 stays a GitHub-only release (`v1.4.0`, backend b11869). 1.4.1 (GitHub release `v1.4.1`, Latest) adds the `download_model(show_progress = FALSE)` fix. Next: answer any CRAN emails, then Phase 5 once it is on CRAN. Steps: see "Release 1.4.1" after Phase 4 below.
 
 > Based on llama.cpp b8766 (2026-04-12) capability analysis.
 > These features are available in the llama.cpp backend and can be exposed to R users by adding bridge code.
@@ -662,7 +662,7 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 - [x] Tarball rebuilt from master `a600523` (sha256 `5cb86d32...`). Its content is identical to the checked branch tarball except for the `Packaged:` line. Uploaded to win-builder R-devel and R-release (2026-11-02, FTP 226 for both).
 - [x] Post-merge R-CMD-check #136 (run 41509752864) failed in **Extended tests** (ubuntu + macOS) because it ran at 19:27, before the `v1.4.1` release existed: `install_localLLM()` got HTTP 404. After the release it was re-run and passed (attempt 3, all green). The 1.4.0 merge run (40160431616) failed the same way and was never re-run. **Release checklist:** Extended tests run only on push, so each version-bump merge fails them until the release assets exist. After release-builder finishes, run `gh run rerun <merge R-CMD-check id> --failed`.
 - [x] win-builder 1.4.1: R-devel (2026-11-01 r90825 ucrt) **Status OK**; R-release (R 4.6.2) **Status OK**. Only INFO: "specified C++17". Both added to `cran-comments.md`.
-- [ ] **Maintainer submits 1.4.1** via https://cran.r-project.org/submit.html: upload the repo-root `localLLM_1.4.1.tar.gz` (sha256 `e0bb04dc...`, rebuilt from master `bca51d9` after the README fixes; `R CMD check --as-cran` Status OK. The win-builder runs used the earlier tarball, which differs only in README.md), paste `cran-comments.md` into the comment field, then confirm the email.
+- [x] **Submitted to CRAN on 2026-11-02** (web form, confirmation email clicked). Waiting for the automatic pretest email, then manual review. Submission details: upload the repo-root `localLLM_1.4.1.tar.gz` (sha256 `e0bb04dc...`, rebuilt from master `bca51d9` after the README fixes; `R CMD check --as-cran` Status OK. The win-builder runs used the earlier tarball, which differs only in README.md), paste `cran-comments.md` into the comment field, then confirm the email.
 
 **Phase 5 — After release** (GitHub installs of v1.4.0 already work: `remotes::install_github("EddieYang211/localLLM@v1.4.0", subdir = "localLLM")`)
 - [ ] Verify a fresh install: CRAN package → `install_localLLM()` downloads `v1.4.0` → generate.
