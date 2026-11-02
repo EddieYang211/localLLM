@@ -1391,6 +1391,8 @@ struct progress_data {
     std::chrono::steady_clock::time_point start_time;
     size_t file_size;
     bool printed;
+    CURL* curl;
+    curl_off_t last_step;  // last printed 5% step, -1 before the first
 };
 
 static size_t write_data(void *ptr, size_t size, size_t nmemb, FILE *stream) {
@@ -1403,6 +1405,11 @@ static int update_progress(void *ptr, curl_off_t total_to_download, curl_off_t n
     progress_data* data = static_cast<progress_data*>(ptr);
     if (total_to_download <= 0) return 0;
     
+    // Skip redirect bodies (e.g. Hugging Face's 302 to its CDN)
+    long response_code = 0;
+    curl_easy_getinfo(data->curl, CURLINFO_RESPONSE_CODE, &response_code);
+    if (response_code >= 300 && response_code < 400) return 0;
+    
     total_to_download += data->file_size;
     const curl_off_t now_downloaded_plus_file_size = now_downloaded + data->file_size;
     const curl_off_t percentage = (now_downloaded_plus_file_size * 100) / total_to_download;
@@ -1411,7 +1418,10 @@ static int update_progress(void *ptr, curl_off_t total_to_download, curl_off_t n
     const std::chrono::duration<double> elapsed_seconds = now - data->start_time;
     const double speed = now_downloaded / elapsed_seconds.count();
     
-    if (percentage % 5 == 0 || now_downloaded_plus_file_size == total_to_download) {
+    // curl calls this many times per second, so print each 5% step only once
+    const curl_off_t step = percentage / 5;
+    if (step > data->last_step) {
+        data->last_step = step;
         std::cout << "\rDownload progress: " << percentage << "% (" 
                   << now_downloaded_plus_file_size << "/" << total_to_download << " bytes)"
                   << std::flush;
@@ -1436,6 +1446,8 @@ static int download_file(const std::string& url, const std::string& output_file,
     data.start_time = std::chrono::steady_clock::now();
     data.file_size = 0;
     data.printed = false;
+    data.curl = curl;
+    data.last_step = -1;
     
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
@@ -1481,14 +1493,14 @@ static int download_file(const std::string& url, const std::string& output_file,
 }
 
 // Model resolution function
-static int resolve_model_url(std::string& model_url, const std::string& output_file) {
+static int resolve_model_url(std::string& model_url, const std::string& output_file, bool show_progress) {
     if (localllm_string_starts_with(model_url, "file://") || std::filesystem::exists(model_url)) {
         localllm_rm_until_substring(model_url, "://");
         return 0;
     }
     
     if (localllm_string_starts_with(model_url, "https://") || localllm_string_starts_with(model_url, "http://")) {
-        return download_file(model_url, output_file, true);
+        return download_file(model_url, output_file, show_progress);
     }
     
     // For other protocols (hf://, ollama://, etc.), we need full implementation
@@ -1516,7 +1528,7 @@ LOCALLLM_API localllm_error_code localllm_download_model(const char* model_url, 
             std::filesystem::create_directories(output_dir);
         }
         
-        if (resolve_model_url(url, output) != 0) {
+        if (resolve_model_url(url, output, show_progress) != 0) {
             set_error(error_message, "Failed to download model from URL: " + std::string(model_url));
             return LOCALLLM_ERROR;
         }

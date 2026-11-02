@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version tag (e.g. v1.4.0 or v1.4.0-rc1)'
+        description: 'Release version tag (e.g. v1.4.1 or v1.4.1-rc1)'
         required: true
-        default: 'v1.4.0'
+        default: 'v1.4.1'
 
 env:
   SMOKE_MODEL_URL: https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q8_0.gguf
