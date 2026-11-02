@@ -1,6 +1,6 @@
 # localLLM Future Feature Roadmap
 
-> **Current status (2026-10-25): localLLM 1.4.0 is released on GitHub** (`v1.4.0`, Latest; llama.cpp backend **b11869**; tag at master `1e115c3`). All 7 platform backends were built and smoke-tested. **The CRAN submission is pending.** The win-builder checks (R-devel, R-release) have been uploaded and their results will arrive by email; `test_vignettes.R` has not been run yet. Step-by-step status: see "Upgrade plan & status — release 1.4.0" near the end of this file.
+> **Current status (2026-10-25): localLLM 1.4.0 is released on GitHub** (`v1.4.0`, Latest; llama.cpp backend **b11869**; tag at master `1e115c3`). All 7 platform backends were built and smoke-tested. **The CRAN submission is pending.** The win-builder checks (R-devel, R-release) have been uploaded and their results will arrive by email; `test_vignettes.R` passed on 2026-11-02 (66 pass / 0 fail / 3 skip). Step-by-step status: see "Upgrade plan & status — release 1.4.0" near the end of this file.
 
 > Based on llama.cpp b8766 (2026-04-12) capability analysis.
 > These features are available in the llama.cpp backend and can be exposed to R users by adding bridge code.
@@ -641,7 +641,12 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
   - [ ] Pre-submission checklist (`CHECKLIST_BEFORE_CRAN.md`):
     - 1 DESCRIPTION wording ✅ (unchanged);
     - 2 parallel benchmark ✅ (adapted `benchmark_parallel.R`: speedup 3.2× Gemma-4-E2B, 4.4× Qwen3-4B);
-    - **4 `test_vignettes.R` ⏳ not run yet** (last output May 2026);
+    - 4 `test_vignettes.R` ✅ (2026-11-02): **66 pass / 0 fail / 3 skip**, same as May. Run with the 1.4.0 tarball installed in a temp library (`R_LIBS=…`), the v1.4.0 backend from `install_localLLM()`, gemma-3-4b-it-qat-Q5_K_M + Llama-3.2-3B-Instruct-Q5_K_M (re-downloaded to the cache), and Ollama `deepseek-r1:8b`. Compared with May:
+      - teardown lines (`~llama_context`, `ggml_metal_free`) 88 → **0** (fix G);
+      - the `<end_` leak in Gemma's parallel output (`"2\n<end_"`) is gone (PR #7);
+      - ag_news accuracy (gemma4b) 77% → 82%;
+      - `deepseek-r1:8b` now opens with a `<think>` block. Before PR #7 its malformed prompt suppressed thinking. This is expected and already noted in the parallel-processing vignette;
+      - other texts differ, as NEWS says for same-seed outputs.
     - 5 `R CMD check --as-cran` ✅ Status OK;
     - 6 version / NEWS / `.lib_version` ✅.
   - [ ] Maintainer submits via https://cran.r-project.org/submit.html (paste `cran-comments.md` into the comment field), then confirms the email.
@@ -655,4 +660,5 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
   - `next_batch` per-token allocation and dead-code cleanup (incl. the now-unreachable `need_prompt_logit`/`priming` path);
   - stale `custom_files/localllm_capi.cpp.backup`, the duplicate `#include <filesystem>`, and the dead `check_static_library_completeness()` / pure-glue branch in `CMakeLists.txt.custom`;
   - `localLLM/src/liblocalllm.dylib` (a backend binary) is tracked in git. It is excluded from the tarball by `.Rbuildignore`, but it should be removed from the repo;
+  - ✅ FIXED on branch `fix-download-progress` (2026-11-02; ships with the next backend release): `download_model(show_progress = FALSE)` still printed progress (present since v1.0.1). `resolve_model_url()` in `localllm_capi.cpp` calls `download_file(model_url, output_file, true)`, dropping `show_progress`. `update_progress()` also prints on every callback whose percentage is a multiple of 5, so the 0% line repeats until 5%. That floods Rscript/knitr logs (>1 MB for one 2.8 GB model). Fix: `show_progress` is passed through, each 5% step prints once, and 3xx redirect bodies are skipped (HF's 302 printed three `100% (1108/1108 bytes)` lines). A/B with SmolLM2-135M Q8_0 (145 MB): stdout 204 KB / 4083 progress lines -> 1.2 KB / 21 lines (TRUE) and 0 lines (FALSE). Downloaded files are identical and load; a 404 still errors and leaves no file. `std::cout` is kept, since the backend does not link R;
   - roadmap items 1–4.
