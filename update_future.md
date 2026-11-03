@@ -1,6 +1,6 @@
 # localLLM Future Feature Roadmap
 
-> **Current status (2026-11-03): localLLM 1.4.1 is on CRAN (accepted 2026-11-03).** 1.4.0 stays a GitHub-only release (`v1.4.0`, backend b11869). 1.4.1 (GitHub release `v1.4.1`, Latest) adds the `download_model(show_progress = FALSE)` fix. Fresh CRAN install verified. Next: note on issue #6 / PR #7, then the Phase 5 follow-ups.
+> **Current status (2026-11-03): localLLM 1.4.1 is on CRAN (accepted 2026-11-03).** 1.4.0 stays a GitHub-only release (`v1.4.0`, backend b11869). 1.4.1 (GitHub release `v1.4.1`, Latest) adds the `download_model(show_progress = FALSE)` fix. Fresh CRAN install verified. Next: the Phase 5 follow-ups.
 
 > Based on llama.cpp b8766 (2026-04-12) capability analysis.
 > These features are available in the llama.cpp backend and can be exposed to R users by adding bridge code.
@@ -666,7 +666,7 @@ None of fixes 1–4 changes what our code does: they rename or re-wrap the same 
 
 **Phase 5 — After release**
 - [x] Verify a fresh install (2026-11-03): `install.packages("localLLM")` into a temp lib gave the CRAN macOS arm64 binary 1.4.1 (built 2026-11-03, R 4.6.1). With a clean `R_USER_DATA_DIR`, `install_localLLM()` downloaded the `v1.4.1` backend (minos 13.3), and the README Quick Start `quick_llama()` answered "The sentiment of the tweet is Positive."
-- [ ] Note on issue #6 / PR #7 that the fix has shipped.
+- [x] ~~Note on issue #6 / PR #7 that the fix has shipped~~ — skipped (maintainer's decision, 2026-11-03).
 - [ ] Follow-ups for later releases:
   - `llama_batch_ext` migration;
   - use the Jinja prompt parts (`is_input`) so special tokens in user text are not parsed (PR #7 trade-off);
