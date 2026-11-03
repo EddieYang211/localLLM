@@ -204,6 +204,9 @@ jobs:
           _R_CHECK_TESTS_NLINES_: 0
           # Skip examples that might need large models
           _R_CHECK_DONTTEST_EXAMPLES_: false
+          # Skip the remote CRAN incoming checks: once a version is on CRAN, they
+          # warn "Insufficient package version" until the next bump
+          _R_CHECK_CRAN_INCOMING_REMOTE_: false
         shell: bash
 
   # Separate job for extended testing with actual model loading
